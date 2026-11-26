@@ -4,7 +4,7 @@
 
 Repository: [dennisaduval/Pilot-TeamBuilder](https://github.com/dennisaduval/Pilot-TeamBuilder).
 
-Version **0.3.0.dev0**, milestones TB-001 through TB-003. Includes an initial
+Version **0.3.1.dev0**, milestones TB-001 through TB-003. Includes an initial
 desktop review application, composition engine, manifest preflight and offline
 detection. Production watching/routing and packaged field releases remain in development.
 
@@ -32,8 +32,14 @@ Saved jobs retain manual corrections, source calibration, template presets and
 export history. Current source preflight and conservative visibility checks still
 apply; physical-height recovery is not automatic in this milestone.
 
-Use **New job** to select one team folder or the parent of several team folders.
-**Import team** reuses an existing verified manifest without discarding its geometry.
+Use **Choose team folder…** to select athlete PNGs or the parent of several team
+folders; no JSON is required. **Open saved job…** restores saved corrections.
+**Import manifest…** is the advanced option for a verified CLI manifest.
+The **Layout** tab beneath the large panorama has live row-spacing, inverted-V,
+horizontal-spacing and group-size sliders, plus requested rows and a distribution
+readout. **Auto** follows the supplied CSV; explicit requested rows preserve every
+included athlete while enforcing 16 per row. **Advanced** retains exact inch fields
+and manual row distributions.
 Choose templates and a completed-image folder, confirm unchanged capture scale
 only when verified, analyze, and correct review items. **Approve & export JPEG**
 creates a new numbered 26 × 8-inch JPEG after rechecking the reviewed sources and

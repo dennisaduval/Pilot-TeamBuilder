@@ -177,6 +177,15 @@ class TeamBuilderApp:
         ).pack(side="right")
         actions = ttk.Frame(self.root, padding=(16, 10))
         actions.pack(fill="x")
+        self.analyze_button = ttk.Button(
+            actions,
+            text="Analyze / recheck",
+            style="Primary.TButton",
+            command=lambda: self.request_view(True),
+        )
+        self.analyze_button.pack(side="right")
+        utilities = ttk.Frame(self.root, padding=(16, 0, 16, 8))
+        utilities.pack(fill="x")
         ttk.Label(actions, text="Job").pack(side="left", padx=(0, 8))
         self.job_box = ttk.Combobox(
             actions, textvariable=self.recent, state="readonly", width=24
@@ -193,8 +202,9 @@ class TeamBuilderApp:
             ("Output…", self.choose_output),
             ("Row CSV…", self.choose_rows),
         ):
+            parent = actions if text_ in {"New job", "Open…", "Save"} else utilities
             if text_ == "Save":
-                button = ttk.Menubutton(actions, text="Save ▾")
+                button = ttk.Menubutton(parent, text="Save ▾")
                 menu = tk.Menu(button, tearoff=False)
                 menu.add_command(label="Save", command=self._guard(self.save))
                 menu.add_command(
@@ -202,15 +212,8 @@ class TeamBuilderApp:
                 )
                 button.configure(menu=menu)
             else:
-                button = ttk.Button(actions, text=text_, command=self._guard(command))
+                button = ttk.Button(parent, text=text_, command=self._guard(command))
             button.pack(side="left", padx=(7, 0))
-        self.analyze_button = ttk.Button(
-            actions,
-            text="Analyze / recheck",
-            style="Primary.TButton",
-            command=lambda: self.request_view(True),
-        )
-        self.analyze_button.pack(side="right")
         main = ttk.Panedwindow(self.root, orient="horizontal")
         main.pack(fill="both", expand=True, padx=16)
         queue = ttk.Frame(main, padding=(0, 8, 10, 0), width=210)
@@ -286,11 +289,6 @@ class TeamBuilderApp:
         self._athlete_tab()
         footer = ttk.Frame(self.root, padding=(16, 10))
         footer.pack(fill="x")
-        self.progress = ttk.Progressbar(footer, mode="indeterminate", length=110)
-        self.progress.pack(side="left", padx=(0, 12))
-        ttk.Label(footer, textvariable=self.status, wraplength=950).pack(
-            side="left", fill="x", expand=True
-        )
         self.export_button = ttk.Button(
             footer,
             text="Approve & export JPEG",
@@ -299,6 +297,22 @@ class TeamBuilderApp:
             state="disabled",
         )
         self.export_button.pack(side="right", padx=(12, 0))
+        self.progress = ttk.Progressbar(footer, mode="indeterminate", length=110)
+        self.progress.pack(side="left", padx=(0, 12))
+        status_label = ttk.Label(footer, textvariable=self.status, wraplength=700)
+        status_label.pack(side="left", fill="x", expand=True)
+        footer.bind(
+            "<Configure>",
+            lambda e: status_label.configure(
+                wraplength=max(
+                    200,
+                    e.width
+                    - self.export_button.winfo_reqwidth()
+                    - self.progress.winfo_reqwidth()
+                    - 80,
+                )
+            ),
+        )
 
     def _scroll_tab(self, name):
         host = ttk.Frame(self.tabs)

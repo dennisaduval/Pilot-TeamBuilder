@@ -49,6 +49,40 @@ class DesktopSmokeTests(unittest.TestCase):
                 self.assertEqual(
                     app.session.manifest["settings"]["head_spacing_in"], 0.875
                 )
+                # Exercise actual canvas gestures with source-coordinate mapping.
+                app.tabs.select(1)
+                root.update()
+
+                def point(x, y):
+                    left, top, sx, sy = app.portrait_map
+                    return round(left + x * sx), round(top + y * sy)
+
+                old = app.view
+                app.mode.set("Head box")
+                start, end = point(160, 385), point(240, 465)
+                app.portrait.event_generate("<ButtonPress-1>", x=start[0], y=start[1])
+                app.portrait.event_generate("<B1-Motion>", x=end[0], y=end[1])
+                app.portrait.event_generate("<ButtonRelease-1>", x=end[0], y=end[1])
+                wait_for(lambda: app.view is not old)
+                for mode, y in (("Height top", 390), ("Feet", 960)):
+                    old = app.view
+                    app.mode.set(mode)
+                    x, y_canvas = point(200, y)
+                    app.portrait.event_generate("<ButtonPress-1>", x=x, y=y_canvas)
+                    app.portrait.event_generate("<ButtonRelease-1>", x=x, y=y_canvas)
+                    wait_for(lambda: app.view is not old)
+                height = app.session.entry(app.selected_id)["capture"][
+                    "relative_height"
+                ]
+                self.assertAlmostEqual(height, 570, delta=10)
+                old = app.view
+                app.exclude()
+                wait_for(lambda: app.view is not old)
+                self.assertEqual(len(app.view.analysis.layout.placements), 16)
+                old = app.view
+                app.exclude()
+                wait_for(lambda: app.view is not old)
+                self.assertEqual(len(app.view.analysis.layout.placements), 17)
                 job_path = folder / "job.json"
                 app.store.save(app.session.job, job_path)
                 app.session.dirty = False

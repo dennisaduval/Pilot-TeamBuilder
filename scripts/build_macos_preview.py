@@ -61,6 +61,7 @@ def main():
         CFBundleShortVersionString=__version__.split(".dev")[0],
         CFBundleVersion=__version__.split(".dev")[0],
         NSHighResolutionCapable=True,
+        LSMinimumSystemVersion="13.0",
     )
     with info_path.open("wb") as handle:
         plistlib.dump(info, handle)

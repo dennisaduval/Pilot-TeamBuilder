@@ -508,7 +508,9 @@ class TeamBuilderApp:
                 parent=self.root,
                 title="Save TeamBuilder job",
                 defaultextension=".json",
-                initialfile=self.session.job["name"] + ".json",
+                initialfile=self.session.job["name"]
+                + (" copy" if copy else "")
+                + ".json",
             )
             if not chosen:
                 return

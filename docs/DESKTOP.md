@@ -94,6 +94,9 @@ test before producing a symlink/permission-preserving ZIP. The artifact contains
 that ZIP; extract the outer artifact download, then the inner ZIP to obtain the app.
 
 No Python or Xcode installation is required on the test Mac. This is not a
+production build; it targets Apple Silicon and macOS 13 or newer. Older macOS
+versions are blocked by the bundle's declared minimum to match the native helper.
+This is not a
 notarized production release and may require an explicit macOS security allowance.
 Private photography still needs local field validation. For reproducible builds
 on an Apple Silicon Mac with Python and Xcode tools:

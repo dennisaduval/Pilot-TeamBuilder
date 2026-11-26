@@ -8,6 +8,7 @@ from PIL import Image
 
 from pilot_teambuilder.composition import compose
 from pilot_teambuilder.model import Rect
+from pilot_teambuilder.model import Athlete
 from pilot_teambuilder.rendering import TemplateCache, discover_templates, render
 from pilot_teambuilder.rows import RowTable
 from pilot_teambuilder.synthetic import athletes, write_sources
@@ -78,12 +79,27 @@ class RenderingTests(unittest.TestCase):
         people=athletes(1)
         sources=write_sources(self.root/"sources",people)
         layout=compose(people,RowTable({1:(1,)}))
-        with Image.new("RGBA",(300,300)) as image:
+        with Image.new("RGBA",(300,300), "red") as image:
             image.save(next(iter(sources.values())))
         output=self.root/"final.jpg"
         with self.assertRaisesRegex(ValueError,"dimensions changed"):
             render(layout,sources,self.bg,self.fg,"Test",output)
         self.assertFalse(output.exists())
+
+    def test_tiny_cutout_on_large_transparent_canvas_crops_before_scaling(self):
+        source=self.root/"tiny.png"
+        with Image.new("RGBA",(1000,1000)) as image:
+            for x in range(500,510):
+                for y in range(500,510):
+                    image.putpixel((x,y),(255,0,0,255))
+            image.save(source)
+        person=Athlete("tiny",(1000,1000),Rect(500,500,510,510),
+                       Rect(503,500,507,504),10.0,1.0)
+        layout=compose([person],RowTable({1:(1,)}))
+        output=self.root/"tiny-team.jpg"
+        render(layout,{"tiny":source},self.bg,self.fg,"Tiny cutout",output)
+        with Image.open(output) as image:
+            self.assertGreater(image.getpixel((3600,1000))[0],200)
 
 
 if __name__ == "__main__":

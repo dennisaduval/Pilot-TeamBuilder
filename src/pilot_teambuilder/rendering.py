@@ -11,7 +11,8 @@ from time import perf_counter
 from PIL import Image, ImageOps
 
 from .identification import JobProfile, draw_right_footer
-from .model import ART_SIZE, FINAL_SIZE, Layout, Rect
+from .model import ART_SIZE, FINAL_SIZE, Layout
+from .sources import load_png
 
 
 def discover_templates(root: Path) -> tuple[Path, Path]:
@@ -73,7 +74,7 @@ class TemplateCache:
 
 def render(layout: Layout, sources: dict[str, Path], background: Path, foreground: Path,
            team_name: str, destination: Path, cache: TemplateCache | None = None,
-           font: str = "") -> dict:
+           font: str = "", expected_hashes: dict[str, str] | None = None) -> dict:
     """Render one draft/final artifact. Issues must block routing, not preview.
 
     Exclusive publication refuses overwrites. This milestone has no printer or
@@ -83,6 +84,8 @@ def render(layout: Layout, sources: dict[str, Path], background: Path, foregroun
         raise ValueError("Team name must contain 1–240 printable characters.")
     if set(sources) != {p.athlete_id for p in layout.placements}:
         raise ValueError("Source mapping must match the included athlete IDs exactly.")
+    if expected_hashes is not None and set(expected_hashes) != set(sources):
+        raise ValueError("Expected source hashes must match all included athlete IDs.")
     if destination.exists():
         raise FileExistsError(destination)
     own_cache = cache is None
@@ -97,19 +100,23 @@ def render(layout: Layout, sources: dict[str, Path], background: Path, foregroun
             canvas.paste(bg, (0, 0))
             last = perf_counter()
             for p in layout.placements:
-                with Image.open(sources[p.athlete_id]) as opened, closing(ImageOps.exif_transpose(opened)) as image:
-                    if opened.format != "PNG" or "A" not in image.getbands():
-                        raise ValueError(f"{p.athlete_id}: expected extracted alpha-channel PNG.")
+                with load_png(sources[p.athlete_id]) as source:
+                    image = source.image
+                    if expected_hashes is not None and source.sha256 != expected_hashes[p.athlete_id]:
+                        raise ValueError(f"{p.athlete_id}: source content changed since analysis; rebuild.")
                     if image.size != p.source_size:
                         raise ValueError(f"{p.athlete_id}: source dimensions changed; rebuild layout.")
-                    with closing(image.getchannel("A")) as alpha:
-                        bounds = alpha.getbbox()
-                    if bounds is None or not p.source_body.contains(Rect(*bounds), tolerance=1):
+                    if not p.source_body.contains(source.body, tolerance=1):
                         raise ValueError(f"{p.athlete_id}: alpha bounds differ from layout; rebuild geometry.")
-                    size = max(1, round(image.width * p.scale)), max(1, round(image.height * p.scale))
+                    bounds = source.body
+                    size = max(1, round(bounds.width * p.scale)), max(1, round(bounds.height * p.scale))
                     # One athlete at a time bounds memory independently of team size.
-                    with closing(image.convert("RGBA")) as rgba, closing(rgba.resize(size, Image.Resampling.LANCZOS)) as resized:
-                        canvas.alpha_composite(resized, (round(p.x), round(p.y)))
+                    # Crop empty canvas BEFORE resizing. A tiny cutout in a huge
+                    # transparent PNG must never allocate a huge scaled canvas.
+                    with closing(image.crop((bounds.left, bounds.top, bounds.right, bounds.bottom))) as crop:
+                        with closing(crop.convert("RGBA")) as rgba, closing(rgba.resize(size, Image.Resampling.LANCZOS)) as resized:
+                            canvas.alpha_composite(resized, (round(p.x + bounds.left * p.scale),
+                                                            round(p.y + bounds.top * p.scale)))
             canvas.alpha_composite(fg, (0, 0))
             timings["composite_seconds"] = perf_counter() - last
             draw_right_footer(canvas, team_name, JobProfile(footer_font=font))

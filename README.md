@@ -4,8 +4,8 @@
 
 Repository: [dennisaduval/Pilot-TeamBuilder](https://github.com/dennisaduval/Pilot-TeamBuilder).
 
-Version **0.1.0.dev0**, foundation milestone TB-001. This is an executable
-composition engine and synthetic rendering harness, not a production desktop app.
+Version **0.2.0.dev0**, milestones TB-001 and TB-002. This is an executable
+composition engine with manifest preflight and offline detection, not a production desktop app.
 
 ## Run and test
 
@@ -27,6 +27,63 @@ The output directory must be new. The harness writes synthetic source PNGs,
 placeholder templates, **one 7800 × 2400 JPEG at 300 PPI**, and `layout.json` with
 input geometry, corrections, settings, layout, review flags, and stage timings.
 It performs no upload, printing, archiving, or hotfolder monitoring.
+
+## Analyze extracted PNGs
+
+Create a new inventory without modifying source images:
+
+```sh
+pilot-teambuilder --inspect /path/to/team --output /path/to/new-inventory
+```
+
+The generated `team-manifest.json` lists every PNG. Confirm each athlete's
+capture geometry/resize scale and relative-height measurement; an unknown value
+remains an explicit review item. These fields are developer inputs for now; the
+planned review interface will replace manual JSON editing.
+
+On a Mac with Xcode Command Line Tools installed, build the native helper once:
+
+```sh
+python scripts/build_face_helper.py
+```
+
+Analyze a manifest; use `--templates` to optionally render a draft panorama:
+
+```sh
+pilot-teambuilder --manifest /path/to/team-manifest.json --output /path/to/new-analysis
+pilot-teambuilder --manifest /path/to/team-manifest.json --output /path/to/new-draft --templates /path/to/Templates/Team
+```
+
+Each invocation needs a new output directory outside the source folder. It writes
+`analysis.json` with every athlete's status, all detected faces, source hashes,
+geometry, layout, issues and timings. A source-level problem blocks the entire
+layout. A valid layout with possible face obstructions may render a **review
+draft** and exits with code 2. Exit code 0 means preflight found no current review
+issues; it is not photographic approval. No routing or print side effects occur.
+
+The Mac helper uses Apple's installed Vision framework with automatic compute
+selection and a CPU fallback, requires no network/model download, and returns all
+face observations. `--cpu-only` forces CPU execution; `--face-helper` selects an
+explicit binary (needed when using a non-editable installed wheel).
+Windows/Linux support reviewed `manual_head` geometry in this milestone; no
+automatic detector is bundled for those platforms.
+
+Content/OS/helper/preprocessing keyed detections are stored in a local SQLite
+cache beside the manifest in `.pilot-teambuilder/`. `--cache` selects a different
+database; `--refresh-detections` bypasses cached face results. Manual head edits
+never replace cached raw detections. See [manifest contract](docs/MANIFEST.md).
+
+For private local image batches, run the non-destructive inspection harness:
+
+```sh
+python scripts/inspect_sample_batch.py /path/to/private-test-images --report /path/to/new-inspection.json
+```
+
+It verifies PNG decoding, counts every image by team, checks content duplicates,
+records alpha bounds at multiple thresholds, and exports only selected capture
+hints. It performs no face detection, uploads or source modifications. Known
+macOS archive metadata (`__MACOSX`, `._*`, `.DS_Store`) is ignored consistently
+by inventory and preflight; other hidden athlete PNGs remain included.
 
 Use `--rows /path/to/row_counts.csv` to select an external row table.
 

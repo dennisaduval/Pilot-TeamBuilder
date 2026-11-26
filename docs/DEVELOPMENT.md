@@ -183,3 +183,123 @@ VolumePilot PR #25 is superseded by the foundation PR in this repository;
 its branch is retained as a historical reference. Do not merge it into VolumePilot.
 Future work resumes here with TB-002 (manifests, offline detection and cache).
 The earlier milestone record describes the original implementation history.
+
+## 2026-11-26 — TB-002 / 0.2.0.dev0
+
+### Implemented increment
+
+- Strict schema-v1 manifest parser, recursive PNG inventory and explicit
+  per-athlete capture scale/relative height/geometry/provenance. Unknown values
+  remain review items rather than canvas-based guesses. See MANIFEST.md.
+- Manifest-to-analysis-to-layout CLI, optional single draft JPEG, complete
+  per-athlete results, explicit exclusions, manual head/row/inch-offset records,
+  duplicate-content and unlisted-PNG checks. All active inputs must pass source
+  preflight before layout. Layout collision warnings remain review flags.
+- Offline native Swift Vision helper, native-architecture macOS build script,
+  all-face observation contract, revision 3, default automatic compute selection
+  and explicit CPU retry. Reduced-resolution RGBA preprocessing with neutral
+  matte and independent x/y source-coordinate mapping.
+- Hair-inclusive alpha head estimates near detected faces, truncated-window
+  review checks. Anatomical face rectangles remain separate in analysis reports.
+- SQLite WAL cache keyed by source SHA-256, helper/OS/compute identity and
+  preprocessing version. Cache survives restart; source/model changes invalidate;
+  manual corrections preserve raw detections; failed requests are not cached.
+- Bounded immutable PNG snapshots, transparency/dimension validation, source
+  content hashes checked against bytes actually decoded during final rendering.
+  Existing renderer now uses the same safe loader.
+- Tests exercise preflight, metadata uncertainty, coordinate mapping, CPU retry,
+  all-face preservation, cache reuse/invalidation/corruption/restart, duplicate
+  input, exclusions, source changes, full CLI rendering and review exit codes.
+
+### Validation and operational limits
+
+51 tests discovered locally with Python 3.13 and Pillow 11.3.0: 50 pass; one native
+macOS helper smoke test is skipped on Linux. CI builds the native helper and
+runs default/CPU blank-image smoke tests on macOS; these do not establish actual
+face detection accuracy. Initial revision f348286 passed all 49 then-current tests
+on macOS CI, including compiling the Swift helper and default/CPU blank-image
+execution; Windows/Linux CI also passed (native-only test skipped). Final revision
+results are tracked in [PR #2](https://github.com/dennisaduval/Pilot-TeamBuilder/pull/2).
+
+Final review also added a regression for tiny cutouts in very large transparent
+canvases: render crops to actual alpha bounds before scaling, preventing enormous
+temporary allocations while retaining source-coordinate placement. The PNG loader
+converts Pillow decompression-limit failures into preflight issues. Extreme source
+scale values produce explicit review errors instead of numeric overflow failures.
+
+No actual athlete photographs are available. No automatic physical-height
+estimation, crop metadata recovery, eye/shoulder/foot landmark adapter or
+silhouette-aware face occlusion solver has been validated. Capture metadata must
+be provided/reviewed explicitly. Automatic detection is Mac-only; other platforms
+can use reviewed manual-head records. Python adapter tests use injected synthetic
+faces; production confidence thresholds/hair bounds need real sample validation.
+The Swift source is compiled/tested on macOS CI, not on this Linux workstation.
+Native binary signing, notarization and app packaging remain future milestones.
+
+The initial repo foundation PR #1 remains unmerged. Develop this increment on
+its feature head with a stacked PR so foundation review can remain independent.
+Merge #1 first, then retarget the TB-002 PR to main before merging it. No existing
+VolumePilot/PanoBuilder application or main branch is modified by this increment.
+
+Continue with TB-003: production desktop review UI, saved jobs/templates, large
+panoramic preview and correction tools; keep source preflight/calibration visible.
+Before unattended routing, complete TB-004 stable handoff/state/recovery/print
+idempotency and refine alpha-aware face visibility. Real photographs/templates
+will validate quality and timing when available, without blocking UI development.
+
+### Native API references
+
+- https://developer.apple.com/documentation/vision/vndetectfacerectanglesrequest
+- https://developer.apple.com/documentation/vision/vnrequest/supportedcomputestagedevices
+- https://developer.apple.com/documentation/vision/vnrequest/setcomputedevice(_:for:)
+- https://developer.apple.com/documentation/vision/vnrequest/usescpuonly
+
+Modern CPU assignment selects a supported CPU device per compute stage on macOS
+14+. The legacy property is only used on macOS 13. Vision chooses its own devices
+in default mode; this is not a promise that each operation uses a particular GPU
+or Neural Engine. Benchmarking with real athlete PNGs remains necessary.
+
+## 2026-11-26 — First real-image sample inspection
+
+Actual private photography is now available; the earlier statement that samples
+were unavailable describes the initial TB-002 implementation only.
+
+- Inspected 44 extracted RGBA PNGs in four team folders, with counts 11, 11, 5,
+  and 17. All decode successfully at 4000 × 6000 (24 MP); no content duplicates.
+- The 17-image team exercises the exact (8,9) two-row CSV configuration; the
+  other three teams exercise single-row configurations. All photos retain the
+  same camera-model and 50-mm focal-length metadata. Matching EXIF is supporting
+  evidence, not proof of identical distance, crop or physical height.
+- The operator explicitly confirmed the original canvas and extraction scale
+  were retained. Source scale 1.0 is therefore appropriate for THIS sample set;
+  it must not become an unverified default for future jobs. Private local
+  manifests record that confirmation; relative-height measurements remain unset
+  pending face/head/foot validation. No height is inferred from raw alpha height.
+- Visible cases include head bows, floor reflections, wide arms/poses and large
+  relative athlete-size differences. Raw nonzero alpha reaches the canvas bottom
+  in all 44 images, confirming that reflection extent is unsuitable as a foot
+  anchor. Body content must be distinguished from reflections and accessories.
+- Twenty PNGs contain faint alpha whose bounds differ by more than 32 pixels
+  from an alpha>8 support mask; largest measured extent difference is 1175 pixels.
+  These are extraction-residue diagnostics, not invalid images. No faint pixels,
+  reflections or accessories were removed or altered during inspection. Keep
+  raw/supported/anatomical bounds distinct before refining layout containment.
+- Added a private local sample inspector with selected EXIF hints, alpha-threshold
+  diagnostics, hashes, counts and per-image results. It never emits GPS, authors,
+  camera serials or raw XMP. Full decoding plus hashing/diagnostics took about
+  27 seconds on the Linux development host; this excludes face detection/rendering
+  and is not an Apple Silicon production-speed estimate.
+- Fixed source discovery so Finder metadata and AppleDouble archive sidecars
+  cannot become extra athletes or invalidate an otherwise complete manifest.
+  Ordinary hidden PNGs remain included, and invalid real PNGs stay visible as
+  errors. Inventory and preflight use the same discovery rules.
+- Validation: 56 tests discovered locally: 55 pass; native-Mac test skipped on
+  Linux. Five new tests cover metadata sidecars, hidden athletes, end-to-end
+  preflight consistency and non-destructive/private sample inspection. The samples
+  themselves remain outside Git. Only anonymous aggregate findings and synthetic
+  regression fixtures are committed; no customer images or private reports.
+
+Native Vision cannot execute on this Linux host. This inspection does not claim
+real-photo face/head accuracy or approved composite quality. Continue with the
+review interface and run these private samples through the native detector on a
+Mac when the application is ready; never upload customer photos to public CI.

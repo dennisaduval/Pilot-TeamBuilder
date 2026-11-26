@@ -9,9 +9,14 @@ athletes and templates so the preview/export tools can be tested without setup.
 
 ## Review a job
 
-1. Choose **New job**, select the incoming team folder or collection of team
-   folders, then save the job JSON somewhere outside the incoming folder.
-   **Import team** can instead reuse a verified CLI manifest and its measurements.
+1. Click **Choose team folder…** and select a folder containing athlete PNGs,
+   or a parent folder containing teams. No JSON is required. Teams appear in the
+   left queue and source images appear immediately while analysis runs. Choosing
+   more folders adds teams to the current job; choosing the same source again
+   selects it and preserves corrections. Choosing a real folder from Demo starts
+   a real job with its own template/output locations. **New job…** starts a fresh
+   collection; **Open saved job…** restores a previously saved review.
+   **Import manifest…** is an advanced option for verified CLI measurements.
 2. The left queue lists teams and quantities. Choose **Templates** for the current
    team's template folder; default filenames follow the existing `_default`
    conventions. Choose **Output** for completed images. **Row CSV** optionally
@@ -28,13 +33,20 @@ athletes and templates so the preview/export tools can be tested without setup.
    common capture coordinates; they do not resize the athlete independently.
    Previously supplied verified relative-height values remain usable.
 6. The complete group appears when every included source passes preflight. Use
-   **Composition** for spacing, row separation, inverted-V, global size/offsets
-   and placement-area controls. Distances are inches, usually 1/8-inch steps;
-   subtle V steps use finer increments and row separation uses head units.
+   **Layout** beneath the panorama for live row-spacing, inverted-V, horizontal
+   spacing and group-scale sliders. Preview work is debounced and reuses cached
+   geometry. Athlete count reflects included source images; it is not a control
+   that silently drops athletes. **Requested rows → Auto** follows the CSV exactly.
+   An explicit requested count balances athletes across that many rows, assigning
+   any remainder backmost first; it never permits more than 16 per row.
+   **Advanced** holds offsets, placement boundaries and exact manual distributions.
+   Distances use inches, usually 1/8-inch steps; subtle V steps use finer increments
+   and row separation uses head units. Select the **Athletes** tab beneath the
+   panorama for source selection. The right **Athlete** tab retains visual corrections.
 7. Change row counts in back-to-front order; use **Move**, arrows, **Taller** or
    **Shorter** for manual assignment. Click/drag an athlete's head in the panorama
    to move it in 1/8-inch steps. Exclude/restore preserves its source geometry,
-   height anchors and offsets. Exclusion resets manual rows to automatic counts.
+   height anchors and offsets. Exclusion resets manual/requested rows to automatic CSV counts.
 8. Save the job to retain manual edits. The app prompts on closing with unsaved
    changes, and refuses to overwrite job files changed by another writer.
    **Save ▾ → Save a copy** retains your edits when the original job has an external
@@ -43,7 +55,8 @@ athletes and templates so the preview/export tools can be tested without setup.
 ## Export
 
 **Approve & export JPEG** is enabled only for a current successful source/layout
-preview with valid templates. Conservative face-overlap warnings require explicit
+preview with valid templates. Pending slider edits disable approval immediately;
+export waits for the updated preview rather than exporting a stale layout. Conservative face-overlap warnings require explicit
 review confirmation. Out-of-area placements block export and cannot be approved
 away. Source-level failures cannot be overridden into a partial team photograph.
 

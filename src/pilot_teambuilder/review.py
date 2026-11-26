@@ -88,6 +88,43 @@ def import_manifest(job: dict | None, path: Path) -> dict:
     return result
 
 
+def add_image_folder(job: dict | None, folder: Path) -> dict:
+    """Load PNG directories directly; selecting an existing source retains edits."""
+    incoming = new_job(folder)
+    if job is None:
+        return incoming
+    result = deepcopy(job)
+    for team in incoming["teams"]:
+        source = Path(team["manifest"]["source_folder"]).resolve()
+        existing = next((i for i, t in enumerate(result["teams"])
+                         if Path(t["manifest"]["source_folder"]).resolve() == source), None)
+        if existing is not None:
+            result["selected_team"] = existing
+            continue
+        if any(t["manifest"]["team_id"] == team["manifest"]["team_id"] for t in result["teams"]):
+            from uuid import uuid4
+            team["manifest"]["team_id"] += ":" + uuid4().hex
+        result["teams"].append(team)
+        result["selected_team"] = len(result["teams"]) - 1
+    validate_job(result, folder.parent)
+    return result
+
+
+def requested_distribution(count: int, requested: int | None, automatic: tuple[int, ...]) -> tuple[int, ...]:
+    if requested is None:
+        validate_rows(automatic, count)
+        return automatic
+    if type(requested) is not int or not 1 <= requested <= count:
+        raise ValueError("Requested rows must be between 1 and the included athlete count.")
+    minimum = (count + 15) // 16
+    if requested < minimum:
+        raise ValueError(f"{count} athletes need at least {minimum} rows (maximum 16 per row).")
+    base, extra = divmod(count, requested)
+    result = tuple(base + (index < extra) for index in range(requested))
+    validate_rows(result, count)
+    return result
+
+
 def validate_job(job: dict, base_dir: Path):
     if (
         not isinstance(job, dict)
@@ -108,6 +145,8 @@ def validate_job(job: dict, base_dir: Path):
         if not isinstance(team, dict) or not isinstance(team.get("manifest"), dict):
             raise ValueError("Invalid team in saved job.")
         manifest = manifest_from_data(team["manifest"], base_dir)
+        if team.get("requested_rows") is not None:
+            requested_distribution(sum(not e.excluded for e in manifest.entries), team["requested_rows"], ())
         if Path(job["output"]).resolve().is_relative_to(manifest.source_folder):
             raise ValueError(
                 "Completed images must be outside every team's source folder."
@@ -243,6 +282,16 @@ class ReviewSession:
             raise
         self.touch()
 
+    def request_rows(self, count: int | None):
+        active = sum(not e.get("excluded", False) for e in self.manifest["athletes"])
+        if count is not None:
+            requested_distribution(active, count, ())
+            self.team["requested_rows"] = count
+        else:
+            self.team.pop("requested_rows", None)
+        self.manifest.setdefault("corrections", {}).pop("rows", None)
+        self.touch()
+
     def manual_rows(self, counts: tuple[int, ...]):
         active = [e for e in self.manifest["athletes"] if not e.get("excluded", False)]
         validate_rows(counts, len(active))
@@ -261,6 +310,7 @@ class ReviewSession:
             rows.append(row)
             start += count
         self.manifest.setdefault("corrections", {})["rows"] = rows
+        self.team.pop("requested_rows", None)
         self.touch()
 
     def move(
@@ -335,6 +385,7 @@ class ReviewSession:
             if excluded
             else None,
         )
+        self.team.pop("requested_rows", None)
         # Keep all source geometry, anchors and offsets for non-destructive restore.
         self.manifest.setdefault("corrections", {}).pop("rows", None)
         self.touch()

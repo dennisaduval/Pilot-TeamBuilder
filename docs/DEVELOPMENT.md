@@ -372,3 +372,34 @@ flow requires verified calibration and anchors/height values. Preview/source
 validation remains conservative. Real photo/Apple Silicon UI field tests are still
 needed using the private sample archive. Continue with desktop refinement and
 TB-004 production workflow rather than treating this version as event-ready.
+
+
+## 2026-11-26 — TB-003 / 0.3.1.dev0 — Folder selection and live layout
+
+User field feedback: "Import team" misleadingly required a JSON manifest and hid
+direct PNG selection under "New job." Main toolbar now explicitly offers
+Choose team folder and Open saved job. The advanced manifest importer remains
+available under its accurate name. Direct folders or parent collections load
+without JSON; the source list populates before background analysis completes.
+Adding an existing source selects it without overwriting manual corrections;
+distinct same-named source folders receive distinct job IDs. A real-folder
+selection from the synthetic Demo starts a real job with fresh paths.
+
+The large panorama now has Layout/Athletes tabs underneath. Layout follows the
+user-supplied simulator reference: included athlete count, requested rows,
+back-to-front distribution, and live sliders for row separation, inverted-V,
+head spacing and group scale. Advanced inch controls and visual head/height
+corrections remain available. Athlete count reflects actual included files.
+Auto remains authoritative CSV behavior. Explicit requested rows are a saved
+manual override: divide count by requested rows, put remainder backmost first,
+validate nonempty rows and capacity 16. Exclusion returns to Auto. No source is
+silently omitted and no anatomical height estimator has been invented.
+
+Slider changes debounce for 180 ms and reuse existing geometry/thumbnail caches.
+Pending changes disable approval, flush before save/team changes/close, and
+require an updated preview before export. Tests added for direct directory
+selection without a JSON dialog, preserving edits, same-name identities, valid
+requested distributions through 257 athletes, saved override validation, cached
+rebuilds and actual live-slider/row-picker interactions under Xvfb. Cross-platform
+CI and the rebuilt native bundle are the validation gate for this increment.
+Real photography still requires reviewed head/height data before composition.

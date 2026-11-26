@@ -7,6 +7,8 @@ from pilot_teambuilder.review import (
     JobStore,
     ReviewSession,
     import_manifest,
+    add_image_folder,
+    requested_distribution,
     new_job,
     validate_job,
 )
@@ -67,6 +69,71 @@ class ReviewTests(unittest.TestCase):
         self.assertEqual(imported["teams"][0]["manifest"], manifest)
         with self.assertRaisesRegex(ValueError, "already in the job"):
             import_manifest(imported, path)
+
+    def test_direct_png_folder_selection_retains_existing_team_corrections(self):
+        session = ReviewSession(self.job)
+        identity = session.manifest["athletes"][0]["id"]
+        session.offset(identity, 0.125, -0.25)
+        source = Path(session.manifest["source_folder"])
+        selected = add_image_folder(session.job, source)
+        self.assertEqual(len(selected["teams"]), 1)
+        self.assertEqual(selected["teams"][0], session.team)
+        self.assertEqual(selected["selected_team"], 0)
+        self.assertEqual(add_image_folder(None, source)["teams"][0]["manifest"]["team_name"], "Team")
+
+    def test_folder_collection_adds_and_selects_teams_without_replacing_settings(self):
+        write_sources(self.folder / "Other/002_New Team", athletes(2))
+        selected = add_image_folder(self.job, self.folder / "Other")
+        self.assertEqual(len(selected["teams"]), 2)
+        self.assertEqual(selected["selected_team"], 1)
+        self.assertEqual(selected["teams"][0], self.job["teams"][0])
+        self.assertEqual(selected["templates"], self.job["templates"])
+        self.assertEqual(len(self.job["teams"]), 1)
+
+    def test_same_named_sources_keep_distinct_team_ids(self):
+        write_sources(self.folder / "Other/001_Team", athletes(3))
+        selected = add_image_folder(self.job, self.folder / "Other/001_Team")
+        ids = [t["manifest"]["team_id"] for t in selected["teams"]]
+        self.assertEqual(len(set(ids)), 2)
+        validate_job(selected, self.folder)
+
+    def test_requested_rows_are_explicit_persisted_and_reset_to_csv(self):
+        session = ReviewSession(self.job)
+        session.request_rows(2)
+        path = self.folder / "job.json"
+        JobStore().save(session.job, path)
+        loaded = JobStore().load(path)
+        self.assertEqual(loaded["teams"][0]["requested_rows"], 2)
+        session.request_rows(None)
+        self.assertNotIn("requested_rows", session.team)
+        session.request_rows(2)
+        session.manual_rows((1, 2))
+        self.assertNotIn("requested_rows", session.team)
+        session.request_rows(2)
+        self.assertNotIn("rows", session.manifest["corrections"])
+        session.exclude(session.manifest["athletes"][0]["id"])
+        self.assertNotIn("requested_rows", session.team)
+
+    def test_requested_row_distributions_preserve_every_athlete_and_capacity(self):
+        for count in (*range(1, 70), 128, 257):
+            minimum = (count + 15) // 16
+            for requested in range(minimum, count + 1):
+                result = requested_distribution(count, requested, ())
+                self.assertEqual(sum(result), count)
+                self.assertEqual(len(result), requested)
+                self.assertLessEqual(max(result), 16)
+                self.assertGreaterEqual(min(result), 1)
+                self.assertLessEqual(max(result) - min(result), 1)
+        automatic = (9, 9, 9)
+        self.assertEqual(requested_distribution(27, None, automatic), automatic)
+        for count, requested in ((17, 1), (3, 0), (3, 4), (3, 1.5), (3, True)):
+            with self.assertRaises(ValueError):
+                requested_distribution(count, requested, ())
+
+    def test_invalid_requested_rows_in_saved_job_are_rejected(self):
+        self.job["teams"][0]["requested_rows"] = 4
+        with self.assertRaises(ValueError):
+            validate_job(self.job, self.folder)
 
     def test_external_job_changes_are_not_overwritten(self):
         path = self.folder / "job.json"

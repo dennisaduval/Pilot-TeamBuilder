@@ -17,7 +17,10 @@ from PIL import Image, ImageTk
 
 from .desktop_engine import DesktopEngine, LatestWorker
 from .model import PPI, CompositionSettings
-from .review import JobStore, ReviewSession, import_manifest, new_job, rows_from_layout
+from .review import (
+    JobStore, ReviewSession, add_image_folder, import_manifest, new_job,
+    requested_distribution, rows_from_layout,
+)
 
 NAVY, ROYAL, ORANGE, SKY, CLOUD, INSTRUMENT = (
     "#0B1F3A",
@@ -53,6 +56,7 @@ def make_demo(folder: Path):
     with Image.new("RGBA", (900, 300)) as image:
         image.save(templates / "Team Foreground_default.png")
     job = new_job(incoming, "Synthetic demonstration")
+    job["is_demo"] = True
     for team in job["teams"]:
         for entry, person in zip(
             team["manifest"]["athletes"], athletes(len(team["manifest"]["athletes"]))
@@ -91,9 +95,9 @@ class TeamBuilderApp:
         self.drag_start = None
         self.recent_paths = []
         self.recent = tk.StringVar(root)
-        self.title = tk.StringVar(root, "Choose a job to begin")
+        self.title = tk.StringVar(root, "Choose a team folder to begin")
         self.status = tk.StringVar(
-            root, "Open a saved job or choose your incoming team folders."
+            root, "Choose a folder of athlete PNGs, or a parent folder containing teams."
         )
         self.summary = tk.StringVar(root, "0 teams · 0 exported")
         self.details = tk.StringVar(root, "")
@@ -103,7 +107,16 @@ class TeamBuilderApp:
         self.mode = tk.StringVar(root, "Head box")
         self.row_counts = tk.StringVar(root)
         self.target_row = tk.StringVar(root, "1")
-        self.values = {}
+        self.values = {
+            key: tk.StringVar(root, f"{value * (100 if key == 'group_scale' else 1):g}")
+            for key, value in asdict(CompositionSettings()).items()
+        }
+        self.loading_form = False
+        self.live_timer = None
+        self.live_readouts = {}
+        self.athlete_count = tk.StringVar(root, "0")
+        self.requested_rows = tk.StringVar(root, "Auto")
+        self.distribution = tk.StringVar(root, "—")
         self._theme()
         self._build()
         self.root.title("Pilot TeamBuilder · VolumePilot")
@@ -193,16 +206,17 @@ class TeamBuilderApp:
         self.job_box.pack(side="left")
         self.job_box.bind("<<ComboboxSelected>>", self._open_recent)
         for text_, command in (
-            ("New job", self.new),
+            ("Choose team folder…", self.choose_team_folder),
+            ("New job…", self.new),
             ("Demo", self.demo),
-            ("Open…", self.open),
-            ("Import team…", self.import_team),
+            ("Open saved job…", self.open),
+            ("Import manifest…", self.import_team),
             ("Save", self.save),
             ("Templates…", self.choose_templates),
             ("Output…", self.choose_output),
             ("Row CSV…", self.choose_rows),
         ):
-            parent = actions if text_ in {"New job", "Open…", "Save"} else utilities
+            parent = actions if text_ in {"Choose team folder…", "Open saved job…", "Save"} else utilities
             if text_ == "Save":
                 button = ttk.Menubutton(parent, text="Save ▾")
                 menu = tk.Menu(button, tearoff=False)
@@ -212,7 +226,10 @@ class TeamBuilderApp:
                 )
                 button.configure(menu=menu)
             else:
-                button = ttk.Button(parent, text=text_, command=self._guard(command))
+                button = ttk.Button(
+                    parent, text=text_, command=self._guard(command),
+                    style="Primary.TButton" if text_ == "Choose team folder…" else "TButton",
+                )
             button.pack(side="left", padx=(7, 0))
         main = ttk.Panedwindow(self.root, orient="horizontal")
         main.pack(fill="both", expand=True, padx=16)
@@ -264,11 +281,15 @@ class TeamBuilderApp:
             justify="left",
         )
         self.issue_label.pack(fill="x", pady=(8, 10))
-        ttk.Label(center, text="ATHLETES", font=(self.family, 10, "bold")).pack(
-            anchor="w", pady=(0, 6)
-        )
+        self.preview_tabs = ttk.Notebook(center, height=238)
+        self.preview_tabs.pack(fill="x", pady=(4, 0))
+        layout_page = ttk.Frame(self.preview_tabs, padding=(10, 6))
+        athlete_page = ttk.Frame(self.preview_tabs)
+        self.preview_tabs.add(layout_page, text="Layout")
+        self.preview_tabs.add(athlete_page, text="Athletes")
+        self._layout_controls(layout_page)
         self.athletes = ttk.Treeview(
-            center,
+            athlete_page,
             columns=("file", "row", "status"),
             show="headings",
             height=7,
@@ -281,7 +302,7 @@ class TeamBuilderApp:
         ):
             self.athletes.heading(key, text=label)
             self.athletes.column(key, width=width, stretch=key == "file")
-        self.athletes.pack(fill="x")
+        self.athletes.pack(fill="both", expand=True)
         self.athletes.bind("<<TreeviewSelect>>", self.select_athlete)
         self.tabs = ttk.Notebook(main, width=300)
         main.add(self.tabs, weight=0)
@@ -332,8 +353,103 @@ class TeamBuilderApp:
         )
         return page
 
+    def _layout_controls(self, page):
+        counts = ttk.Frame(page)
+        counts.pack(fill="x", pady=(0, 5))
+        ttk.Label(counts, text="Athletes").pack(side="left")
+        ttk.Label(counts, textvariable=self.athlete_count, width=5).pack(side="left", padx=8)
+        ttk.Label(counts, text="Requested rows").pack(side="left")
+        self.rows_picker = ttk.Combobox(
+            counts, textvariable=self.requested_rows, values=("Auto",),
+            state="readonly", width=5,
+        )
+        self.rows_picker.pack(side="left", padx=8)
+        self.rows_picker.bind("<<ComboboxSelected>>", lambda event: self._guard(self.apply_requested_rows)())
+        ttk.Label(counts, textvariable=self.distribution).pack(side="right")
+        ttk.Label(page, text="Row distribution: back to front · Auto follows the row CSV",
+                  style="Sub.TLabel").pack(anchor="w", pady=(0, 4))
+        for key, label, low, high, step, suffix in (
+            ("row_separation_heads", "Vertical row spacing", 0.5, 3.0, 0.125, " heads"),
+            ("v_step_in", "Inverted-V step", 0.0, 0.25, 0.025, " in"),
+            ("head_spacing_in", "Horizontal head spacing", 0.25, 2.0, 0.125, " in"),
+            ("group_scale", "Overall group scale", 25, 100, 1, "%"),
+        ):
+            row = ttk.Frame(page)
+            row.pack(fill="x", pady=3)
+            ttk.Label(row, text=label, width=24).pack(side="left")
+            readout = tk.StringVar(self.root)
+            self.live_readouts[key] = (readout, suffix)
+            ttk.Label(row, textvariable=readout, width=11, anchor="e").pack(side="right")
+            slider = ttk.Scale(
+                row, from_=low, to=high, variable=self.values[key],
+                command=lambda value, k=key, s=step: self._live_change(k, value, s),
+            )
+            slider.pack(side="left", fill="x", expand=True, padx=10)
+        self._refresh_readouts()
+
+    def _refresh_readouts(self):
+        for key, (readout, suffix) in self.live_readouts.items():
+            try:
+                readout.set(f"{float(self.values[key].get()):g}{suffix}")
+            except ValueError:
+                readout.set("—")
+
+    def _live_change(self, key, value, step):
+        if self.loading_form or self.exporting:
+            return
+        self.values[key].set(f"{round(float(value) / step) * step:.3f}")
+        self._refresh_readouts()
+        if not self.session:
+            return
+        if self.live_timer is not None:
+            self.root.after_cancel(self.live_timer)
+        self.export_button.state(["disabled"])
+        self.live_timer = self.root.after(180, self._guard(self._flush_live))
+
+    def _flush_live(self):
+        if self.live_timer is None:
+            return False
+        self.root.after_cancel(self.live_timer)
+        self.live_timer = None
+        self.apply_settings()
+        return True
+
+    def _sync_rows(self, counts=None):
+        if not self.session:
+            return
+        active = sum(not e.get("excluded", False) for e in self.session.manifest["athletes"])
+        self.athlete_count.set(str(active))
+        minimum = max(1, (active + 15) // 16)
+        self.rows_picker.configure(values=("Auto", *map(str, range(minimum, active + 1))))
+        self.requested_rows.set(str(self.session.team.get("requested_rows", "Auto")))
+        if counts is None and active:
+            manual = self.session.manifest.get("corrections", {}).get("rows")
+            if manual:
+                counts = tuple(map(len, manual))
+            else:
+                from .rows import RowTable
+                table = RowTable.load(
+                    Path(self.session.job["row_csv"]) if self.session.job["row_csv"]
+                    else Path(__file__).parent / "data/row_counts.csv"
+                )
+                counts = requested_distribution(
+                    active, self.session.team.get("requested_rows"), table.for_count(active)
+                )
+        self.distribution.set(" / ".join(map(str, counts)) if counts else "—")
+
+    def apply_requested_rows(self, event=None):
+        if not self.session or self.exporting:
+            return
+        self._flush_live()
+        value = self.requested_rows.get()
+        try:
+            self.session.request_rows(None if value == "Auto" else int(value))
+        finally:
+            self._sync_rows()
+        self.request_view()
+
     def _composition_tab(self):
-        page = self._scroll_tab("Composition")
+        page = self._scroll_tab("Advanced")
         fields = (
             ("head_spacing_in", "Head spacing (in)", 0.125),
             ("row_separation_heads", "Row separation (heads)", 0.125),
@@ -349,7 +465,7 @@ class TeamBuilderApp:
         )
         for row, (key, label, step) in enumerate(fields):
             ttk.Label(page, text=label).grid(row=row, column=0, sticky="w", pady=4)
-            variable = self.values[key] = tk.StringVar(self.root)
+            variable = self.values[key]
             spin = ttk.Spinbox(
                 page,
                 textvariable=variable,
@@ -468,6 +584,7 @@ class TeamBuilderApp:
             self.recent.set(self.store.path.stem)
 
     def _discard(self):
+        self._flush_live()
         return (
             not self.session
             or not self.session.dirty
@@ -486,6 +603,22 @@ class TeamBuilderApp:
             self._guard(
                 lambda: self.set_job(self.store.load(Path(self.recent_paths[index])))
             )()
+
+    def choose_team_folder(self):
+        path = filedialog.askdirectory(
+            title="Choose a team PNG folder or a parent folder containing teams",
+            parent=self.root,
+        )
+        if not path:
+            return
+        self._flush_live()
+        demo = bool(self.session and self.session.job.get("is_demo"))
+        current = self.session.job if self.session and not demo else None
+        job = add_image_folder(current, Path(path))
+        if current is None:
+            self.store = JobStore()
+        self.set_job(job)
+        self.session.dirty = True
 
     def new(self):
         if not self._discard():
@@ -507,13 +640,14 @@ class TeamBuilderApp:
             return
         path = filedialog.askopenfilename(
             parent=self.root,
-            title="Open TeamBuilder job",
+            title="Open saved TeamBuilder job",
             filetypes=[("TeamBuilder job", "*.json")],
         )
         if path:
             self.set_job(self.store.load(Path(path)))
 
     def save(self, copy=False):
+        self._flush_live()
         if not self.session:
             return
         path = None if copy else self.store.path
@@ -535,6 +669,7 @@ class TeamBuilderApp:
         self.status.set("Job and all manual corrections saved.")
 
     def import_team(self):
+        self._flush_live()
         path = filedialog.askopenfilename(
             parent=self.root,
             title="Import verified team manifest",
@@ -548,6 +683,7 @@ class TeamBuilderApp:
             self.session.dirty = True
 
     def set_job(self, job):
+        self._flush_live()
         self.token += 1
         self.session = ReviewSession(job)
         self.team_status = {}
@@ -574,6 +710,7 @@ class TeamBuilderApp:
             return
         selection = self.teams.selection()
         if selection and int(selection[0]) != self.session.job["selected_team"]:
+            self._flush_live()
             self.session.select_team(int(selection[0]))
             self.selected_id = None
             self._clear_view()
@@ -584,12 +721,23 @@ class TeamBuilderApp:
         values = asdict(CompositionSettings()) | self.session.manifest.get(
             "settings", {}
         )
-        for key, var in self.values.items():
-            var.set(f"{values[key] * (100 if key == 'group_scale' else 1):g}")
+        self.loading_form = True
+        try:
+            for key, var in self.values.items():
+                var.set(f"{values[key] * (100 if key == 'group_scale' else 1):g}")
+            self._refresh_readouts()
+            self._sync_rows()
+        finally:
+            self.loading_form = False
         self.selected_id = self.session.manifest["athletes"][0]["id"]
+        self.athletes.delete(*self.athletes.get_children())
+        for entry in self.session.manifest["athletes"]:
+            self.athletes.insert("", "end", iid=entry["id"],
+                                 values=(entry["file"], "—", "Waiting for analysis"))
         self.request_view()
 
     def choose_templates(self):
+        self._flush_live()
         if not self.session:
             return
         path = filedialog.askdirectory(
@@ -642,6 +790,7 @@ class TeamBuilderApp:
                 for k, v in self.values.items()
             }
             self.session.settings(values)
+            self._refresh_readouts()
             self.request_view()
 
     def apply_rows(self):
@@ -653,8 +802,8 @@ class TeamBuilderApp:
 
     def auto_rows(self):
         if self.session:
-            self.session.manifest.setdefault("corrections", {}).pop("rows", None)
-            self.session.touch()
+            self.session.request_rows(None)
+            self._sync_rows()
             self.request_view()
 
     def confirm_scale(self):
@@ -793,6 +942,7 @@ class TeamBuilderApp:
                     self._draw_portrait()
                     if (
                         value.analysis.layout
+                        and self.live_timer is None
                         and value.templates_ready
                         and not any(
                             "outside athlete placement area" in i
@@ -884,6 +1034,7 @@ class TeamBuilderApp:
                 else ""
             )
         )
+        self._sync_rows(layout.row_counts if layout else None)
         record = self._record()
         anchors = self.session.team["anchors"].get(self.selected_id, {})
         height = (
@@ -924,7 +1075,8 @@ class TeamBuilderApp:
             self.canvas.create_text(
                 max(10, self.canvas.winfo_width() / 2),
                 max(10, self.canvas.winfo_height() / 2),
-                text="Team preview\nAnalyze a team, then resolve source review items.",
+                text=("Team preview\nAnalyze the selected team, then resolve source review items."
+                      if self.session else "Choose team folder…\nSelect athlete PNGs or a folder containing teams."),
                 fill="white",
                 justify="center",
                 width=500,
@@ -1084,6 +1236,8 @@ class TeamBuilderApp:
         self.drag_start = None
 
     def export(self):
+        if self._flush_live():
+            return
         if (
             self.exporting
             or not self.view
@@ -1127,6 +1281,7 @@ class TeamBuilderApp:
             self.pending_close = True
             self.status.set("Finishing the current export before closing…")
             return
+        self._flush_live()
         if self.session and self.session.dirty:
             answer = messagebox.askyesnocancel(
                 "Save review changes", "Save this job before closing?", parent=self.root

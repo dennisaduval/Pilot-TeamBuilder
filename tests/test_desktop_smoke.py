@@ -13,6 +13,41 @@ from unittest.mock import patch
     "Run desktop smoke under a graphical display",
 )
 class DesktopSmokeTests(unittest.TestCase):
+    def test_choose_png_folder_uses_directory_picker_and_preserves_corrections(self):
+        import tkinter as tk
+
+        from pilot_teambuilder.app import TeamBuilderApp
+        from pilot_teambuilder.synthetic import athletes, write_sources
+
+        with tempfile.TemporaryDirectory() as temp:
+            folder = Path(temp)
+            source = folder / "Incoming/001_Real Team"
+            write_sources(source, athletes(3))
+            root = tk.Tk()
+            app = TeamBuilderApp(root, folder / "state")
+            try:
+                with patch("pilot_teambuilder.app.filedialog.askdirectory",
+                           return_value=str(source)) as picker, patch(
+                    "pilot_teambuilder.app.filedialog.askopenfilename",
+                    side_effect=AssertionError("PNG folder selection must not ask for JSON"),
+                ):
+                    app.choose_team_folder()
+                    picker.assert_called_once()
+                    self.assertEqual(len(app.teams.get_children()), 1)
+                    self.assertEqual(len(app.athletes.get_children()), 3)
+                    self.assertEqual(app.title.get(), "Real Team")
+                    identity = app.selected_id
+                    app.session.offset(identity, 0.125, -0.25)
+                    saved = app.session.snapshot()
+                    app.choose_team_folder()
+                    self.assertEqual(len(app.session.job["teams"]), 1)
+                    self.assertEqual(app.session.team, saved["teams"][0])
+                    self.assertTrue(app.session.dirty)
+            finally:
+                if app.session:
+                    app.session.dirty = False
+                app.close()
+
     def test_saved_job_preview_correction_and_export_flow(self):
         import tkinter as tk
 
@@ -41,6 +76,28 @@ class DesktopSmokeTests(unittest.TestCase):
                 self.assertIsNotNone(app.view.panorama)
                 self.assertGreater(app.canvas.winfo_width(), 600)
                 self.assertIsNotNone(app.portrait_map)
+                # Live sliders invalidate approval immediately and debounce a rebuild.
+                old = app.view
+                app._live_change("group_scale", "90", 1)
+                self.assertIn("disabled", app.export_button.state())
+                self.assertIsNotNone(app.live_timer)
+                # Clicking export while a slider is pending updates the preview first.
+                app.export()
+                self.assertFalse(app.exporting)
+                wait_for(lambda: app.view is not old)
+                self.assertEqual(app.session.manifest["settings"]["group_scale"], 0.9)
+                # Requested rows update the actual composition, and Auto restores CSV.
+                old = app.view
+                app.requested_rows.set("3")
+                app.rows_picker.event_generate("<<ComboboxSelected>>")
+                wait_for(lambda: app.view is not old)
+                self.assertEqual(app.view.analysis.layout.row_counts, (6, 6, 5))
+                self.assertEqual(app.distribution.get(), "6 / 6 / 5")
+                old = app.view
+                app.requested_rows.set("Auto")
+                app.apply_requested_rows()
+                wait_for(lambda: app.view is not old)
+                self.assertNotIn("requested_rows", app.session.team)
                 # Edit through the same form callback operators use.
                 app.values["head_spacing_in"].set("0.875")
                 old = app.view

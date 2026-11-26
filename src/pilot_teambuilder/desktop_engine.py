@@ -15,7 +15,7 @@ from .identification import JobProfile, draw_right_footer
 from .manifests import manifest_from_data
 from .measurements import MeasurementCache
 from .rendering import TemplateCache, discover_templates, render
-from .review import fingerprint
+from .review import fingerprint, requested_distribution
 from .rows import RowTable
 from .sources import load_png
 
@@ -105,6 +105,9 @@ class DesktopEngine:
             if job["row_csv"]
             else Path(__file__).parent / "data/row_counts.csv"
         )
+        count = sum(not e.excluded for e in manifest.entries)
+        if team.get("requested_rows") is not None and count:
+            table = RowTable({count: requested_distribution(count, team["requested_rows"], ())})
         result = analyze_team(
             manifest, table, self.detector, self.disk, refresh, self.measurements
         )

@@ -46,6 +46,26 @@ class DesktopEngineTests(unittest.TestCase):
         self.assertEqual(self.engine.assets.decodes, decodes)
         self.assertNotEqual(first.review_signature, second.review_signature)
 
+    def test_requested_rows_rebuild_layout_without_redecoding_and_preserve_sources(self):
+        original = self.engine.view(self.job, None)
+        self.addCleanup(original.close)
+        decodes = self.engine.assets.decodes
+        session = ReviewSession(self.job)
+        session.request_rows(2)
+        with patch("pilot_teambuilder.measurements.load_png",
+                   side_effect=AssertionError("Unexpected full decode")):
+            changed = self.engine.view(session.job, None)
+        self.addCleanup(changed.close)
+        self.assertEqual(changed.analysis.layout.row_counts, (2, 1))
+        self.assertEqual({p.athlete_id for p in changed.analysis.layout.placements},
+                         {p.athlete_id for p in original.analysis.layout.placements})
+        self.assertEqual(decodes, self.engine.assets.decodes)
+        self.assertNotEqual(changed.review_signature, original.review_signature)
+        session.request_rows(None)
+        restored = self.engine.view(session.job, None)
+        self.addCleanup(restored.close)
+        self.assertEqual(restored.analysis.layout.row_counts, original.analysis.layout.row_counts)
+
     def test_export_rejects_stale_template_review(self):
         view = self.engine.view(self.job, None)
         self.addCleanup(view.close)

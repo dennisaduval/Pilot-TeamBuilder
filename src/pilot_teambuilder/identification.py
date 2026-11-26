@@ -77,10 +77,11 @@ def draw_footer(image: Image.Image, label: str, profile: JobProfile) -> None:
 
 
 def draw_right_footer(image: Image.Image, label: str, profile: JobProfile) -> None:
-    with closing(Image.new("RGB", (LANDSCAPE_SIZE[1], LANDSCAPE_FOOTER_WIDTH), "white")) as strip:
+    ratio = image.width / LANDSCAPE_SIZE[0]
+    with closing(Image.new("RGB", (image.height, max(1, round(LANDSCAPE_FOOTER_WIDTH * ratio))), "white")) as strip:
         _draw_centered_label(
             strip, label, (0, 0, strip.width, strip.height), profile,
-            preferred_max=profile.footer_max_size,
+            preferred_max=max(8, round(profile.footer_max_size * ratio)),
         )
         with closing(strip.rotate(90, expand=True)) as rotated:
-            image.paste(rotated, (LANDSCAPE_PRINT_WIDTH, 0))
+            image.paste(rotated, (round(LANDSCAPE_PRINT_WIDTH * ratio), 0))

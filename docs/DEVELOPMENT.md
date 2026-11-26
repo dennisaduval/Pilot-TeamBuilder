@@ -303,3 +303,57 @@ Native Vision cannot execute on this Linux host. This inspection does not claim
 real-photo face/head accuracy or approved composite quality. Continue with the
 review interface and run these private samples through the native detector on a
 Mac when the application is ready; never upload customer photos to public CI.
+
+## 2026-11-26 — TB-003 / 0.3.0.dev0 — Initial desktop review
+
+Implemented a separate Tk review layer using PanoBuilder's existing desktop
+pattern: main-thread widgets and queued background image work. Reviewed the
+current PanoBuilder app and the supplied VolumePilot Brand Style Guide v2 before
+implementation. Reused the existing composition, validation, detection, CSV,
+template and final rendering modules; no changes to other VP applications.
+
+Features: saved jobs/recent-job selection; team queue/status/counts; large actual
+panorama preview and placement overlays; athlete list; visual hair/head rectangles
+and anatomical top/foot anchors; manual height ranks, row distributions, row/slot
+moves, exclusions/restoration, 1/8-inch individual dragging; group settings in
+inches; per-team templates and remembered template composition presets; verified
+numbered full-JPEG export and saved export history. See DESKTOP.md.
+
+Added a bounded geometry cache so layout and metadata edits do not repeatedly
+decode all PNGs. It stores only dimensions, bounds, heads and source hashes, keyed
+by current file version and detector identity. Small preview assets have a strict
+64-MiB LRU budget; one worker owns both caches, and at most one replacement task
+waits behind the active task. Stale results are closed rather than displayed.
+Disk face caching is retained. Manual measurement failures never become approved
+metadata or cause silent image omission.
+
+Export rechecks a signature over the actual manifest, layout, source hashes and
+template versions. The renderer additionally checks template versions before and
+after rendering and source hashes against the decoded bytes. Manual out-of-area
+placements block export; conservative overlap warnings may be explicitly reviewed.
+Saved jobs use staged atomic writes and reject conflicting external edits.
+
+Local validation: 71 tests discovered, 69 pass, native-Mac and graphical-display
+tests skipped on this Linux development session. New tests cover job round trips,
+external file conflicts, source-normalized height anchors, non-destructive restore,
+manual rows/ranks, template presets, measurement/thumbnail reuse, cache bounds,
+stale-template export rejection, full-size export, out-of-area export rejection,
+bounded worker replacement, startup retry and an actual Tk review/export flow.
+The GUI smoke runs separately under Xvfb in Linux CI; remote CI results and the
+synthetic screenshot artifact are linked from the TB-003 PR. Local Xorg initialized
+but this command environment could not connect a GUI client; no local visual
+inspection is claimed until the CI smoke/screenshot is reviewed.
+
+PR sequencing: this increment is based on PR #2 head 7e664ed, while #1 and #2
+remain unmerged. TB-003 is a stacked PR against #2's feature branch. Merge #1,
+retarget #2 to main and merge it, then retarget TB-003 to main before merging.
+
+Limits: first developer desktop, no packaged/notarized Mac app; no automatic
+head-to-floor physical-height estimation or arbitrary crop/resize calibration;
+no alpha-residue cleaning or silhouette-aware face solver; no hotfolder processing,
+route/print queues, crash recovery, job database or multi-destination approval.
+Network destinations are selected mounted folders. The initial manual review
+flow requires verified calibration and anchors/height values. Preview/source
+validation remains conservative. Real photo/Apple Silicon UI field tests are still
+needed using the private sample archive. Continue with desktop refinement and
+TB-004 production workflow rather than treating this version as event-ready.

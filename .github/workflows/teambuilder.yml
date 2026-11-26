@@ -18,3 +18,20 @@ jobs:
       - if: runner.os == 'macOS'
         run: python scripts/build_face_helper.py
       - run: python -m unittest discover -s tests -v
+      - name: Install desktop test dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq xvfb python3-tk
+      - name: Exercise desktop review under Xvfb
+        if: runner.os == 'Linux'
+        env:
+          TEAMBUILDER_GUI_TEST: '1'
+          TEAMBUILDER_UI_CAPTURE: desktop-review.png
+        run: xvfb-run -a -s '-screen 0 1600x1100x24' python -m unittest discover -s tests -p test_desktop_smoke.py -v
+      - uses: actions/upload-artifact@v4
+        if: runner.os == 'Linux' && always()
+        with:
+          name: synthetic-desktop-preview
+          path: desktop-review.png
+          if-no-files-found: ignore

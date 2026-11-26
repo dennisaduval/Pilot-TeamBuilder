@@ -13,6 +13,7 @@ from PIL import Image, ImageOps
 from .identification import JobProfile, draw_right_footer
 from .model import ART_SIZE, FINAL_SIZE, Layout
 from .sources import load_png
+from .measurements import MeasurementCache
 
 
 def discover_templates(root: Path) -> tuple[Path, Path]:
@@ -39,9 +40,9 @@ class TemplateCache:
     def __init__(self):
         self.layers = OrderedDict()
 
-    def load(self, path: Path, foreground: bool) -> Image.Image:
+    def load(self, path: Path, foreground: bool, size=ART_SIZE) -> Image.Image:
         stat = path.stat()
-        key = (str(path.resolve()), stat.st_size, stat.st_mtime_ns, foreground)
+        key = (str(path.resolve()), stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns, foreground, size)
         if key in self.layers:
             self.layers.move_to_end(key)
             return self.layers[key]
@@ -58,9 +59,13 @@ class TemplateCache:
                 raise ValueError("Background must be JPEG.")
             converted = oriented.convert("RGBA")
             try:
-                layer = converted.resize(ART_SIZE, Image.Resampling.LANCZOS)
+                layer = converted.resize(size, Image.Resampling.LANCZOS)
             finally:
                 converted.close()
+        after = path.stat()
+        if (stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns) != (after.st_size, after.st_mtime_ns, after.st_ctime_ns):
+            layer.close()
+            raise ValueError("Template changed while decoding; select it again after copying finishes.")
         self.layers[key] = layer
         while len(self.layers) > 2:
             self.layers.popitem(last=False)[1].close()
@@ -74,7 +79,8 @@ class TemplateCache:
 
 def render(layout: Layout, sources: dict[str, Path], background: Path, foreground: Path,
            team_name: str, destination: Path, cache: TemplateCache | None = None,
-           font: str = "", expected_hashes: dict[str, str] | None = None) -> dict:
+           font: str = "", expected_hashes: dict[str, str] | None = None,
+           expected_templates: dict[str, tuple] | None = None) -> dict:
     """Render one draft/final artifact. Issues must block routing, not preview.
 
     Exclusive publication refuses overwrites. This milestone has no printer or
@@ -93,7 +99,13 @@ def render(layout: Layout, sources: dict[str, Path], background: Path, foregroun
     start = perf_counter()
     timings = {}
     temporary = None
+    def verify_templates():
+        if expected_templates is not None:
+            for path, expected in expected_templates.items():
+                if MeasurementCache.signature(Path(path)) != expected:
+                    raise ValueError("Template changed since review; rebuild the preview before exporting.")
     try:
+        verify_templates()
         bg, fg = cache.load(background, False), cache.load(foreground, True)
         timings["templates_seconds"] = perf_counter() - start
         with closing(Image.new("RGBA", FINAL_SIZE, "white")) as canvas:
@@ -134,6 +146,7 @@ def render(layout: Layout, sources: dict[str, Path], background: Path, foregroun
                 raise ValueError("Output verification failed.")
         # Hard-link publication is atomic and refuses replacing an existing
         # file. Unsupported network filesystems fail explicitly for later retry.
+        verify_templates()
         os.link(temporary, destination)
         timings["total_seconds"] = perf_counter() - start
         return {"size": FINAL_SIZE, "ppi": 300, "timings": timings,

@@ -6,12 +6,11 @@ from time import perf_counter
 
 from .composition import compose
 from .discovery import source_paths
-from .detection import measure_head
+from .measurements import MeasurementCache
 from .detection_cache import DetectionCache
 from .manifests import TeamManifest
 from .model import Athlete, Layout
 from .rows import RowTable
-from .sources import load_png
 
 
 @dataclass
@@ -23,13 +22,14 @@ class TeamAnalysis:
 
 
 def analyze_team(manifest: TeamManifest, table: RowTable, detector,
-                 cache: DetectionCache, refresh: bool = False) -> TeamAnalysis:
+                 cache: DetectionCache, refresh: bool = False,
+                 measurements: MeasurementCache | None = None) -> TeamAnalysis:
     started = perf_counter()
     issues = []
     records, people, sources, hashes = [], [], {}, {}
+    measurements = measurements or MeasurementCache()
     cache_hits = 0
     detection_seconds = 0.0
-    decode_seconds = 0.0
     declared = {e.path.resolve() for e in manifest.entries}
     all_paths = source_paths(manifest.source_folder)
     if any(p.is_symlink() for p in all_paths):
@@ -54,50 +54,26 @@ def analyze_team(manifest: TeamManifest, table: RowTable, detector,
             errors.append("Capture scale, relative height, geometry ID and provenance require confirmation.")
         try:
             tick = perf_counter()
-            with load_png(e.path) as source:
-                decode_seconds += perf_counter() - tick
-                record.update(sha256=source.sha256, image_size=source.image.size, body=asdict(source.body))
-                if source.sha256 in seen_hashes:
-                    errors.append("Duplicate image content also used by " + seen_hashes[source.sha256] + ".")
-                seen_hashes[source.sha256] = e.id
-                head = e.manual_head
-                confidence = 1.0
-                if head is not None:
-                    record["detection_method"] = "reviewed-manual"
-                    record["faces"] = []
-                else:
-                    tick = perf_counter()
-                    identity = detector.identity
-                    key = cache.key(source.sha256, identity)
-                    faces = None if refresh else cache.get(key, source.image.size)
-                    record["cache_hit"] = faces is not None
-                    if faces is None:
-                        faces = detector.detect(source.image)
-                        cache.put(key, source.image.size, faces)
-                    else:
-                        cache_hits += 1
-                    detection_seconds += perf_counter() - tick
-                    record["detection_method"] = identity
-                    record["faces"] = [asdict(f) for f in faces]
-                    if len(faces) != 1:
-                        errors.append(f"Detected {len(faces)} faces; expected one. Correct detection or explicitly exclude this image.")
-                    else:
-                        confidence = faces[0].confidence
-                        if confidence < 0.8:
-                            errors.append("Face detection confidence is below 0.8.")
-                        head, uncertain = measure_head(source.image, faces[0])
-                        if uncertain:
-                            errors.append("Head/hair silhouette reaches the analysis window; review head bounds.")
-                if head is not None:
-                    record["head"] = asdict(head)
-                    if not source.body.contains(head):
-                        errors.append("Head bounds lie outside the visible athlete silhouette.")
-                if not errors and head is not None:
-                    people.append(Athlete(e.id, source.image.size, source.body, head,
-                                          e.relative_height, e.source_scale, confidence))
-                    sources[e.id] = e.path
-                    hashes[e.id] = source.sha256
-                    record["status"] = "ready"
+            measured = measurements.measure(e, detector, cache, refresh)
+            detection_seconds += perf_counter() - tick
+            record.update(sha256=measured.sha256, image_size=measured.size,
+                          body=asdict(measured.body), detection_method=measured.method,
+                          faces=[asdict(f) for f in measured.faces], cache_hit=measured.cache_hit)
+            cache_hits += int(measured.cache_hit)
+            errors.extend(measured.issues)
+            if measured.sha256 in seen_hashes:
+                errors.append("Duplicate image content also used by " + seen_hashes[measured.sha256] + ".")
+            seen_hashes[measured.sha256] = e.id
+            if measured.head is not None:
+                record["head"] = asdict(measured.head)
+                if not measured.body.contains(measured.head):
+                    errors.append("Head bounds lie outside the visible athlete silhouette.")
+            if not errors and measured.head is not None:
+                people.append(Athlete(e.id, measured.size, measured.body, measured.head,
+                                      e.relative_height, e.source_scale, measured.confidence))
+                sources[e.id] = e.path
+                hashes[e.id] = measured.sha256
+                record["status"] = "ready"
         except (OSError, ValueError, RuntimeError) as error:
             errors.append(str(error))
     if any(r["issues"] for r in records):
@@ -107,7 +83,9 @@ def analyze_team(manifest: TeamManifest, table: RowTable, detector,
         try:
             # Exclusions were deliberately accounted for above. compose receives
             # all included athletes and the remaining non-destructive corrections.
-            corrections = replace(manifest.corrections, excluded=())
+            excluded_ids = set(manifest.corrections.excluded)
+            corrections = replace(manifest.corrections, excluded=(), offsets_in={
+                key: value for key, value in manifest.corrections.offsets_in.items() if key not in excluded_ids})
             layout = compose(people, table, manifest.settings, corrections)
             issues.extend(layout.issues)
         except ValueError as error:
@@ -116,6 +94,6 @@ def analyze_team(manifest: TeamManifest, table: RowTable, detector,
               "status": "review" if issues else "ready", "issues": issues, "athletes": records,
               "settings": asdict(manifest.settings), "corrections": asdict(manifest.corrections),
               "layout": asdict(layout) if layout else None,
-              "timings": {"decode_seconds": decode_seconds, "detection_seconds": detection_seconds,
+              "timings": {"source_measurement_seconds": detection_seconds,
                           "total_seconds": perf_counter() - started}, "cache_hits": cache_hits}
     return TeamAnalysis(report, layout, sources, hashes)

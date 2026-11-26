@@ -78,7 +78,7 @@ class RenderingTests(unittest.TestCase):
         people=athletes(1)
         sources=write_sources(self.root/"sources",people)
         layout=compose(people,RowTable({1:(1,)}))
-        with Image.new("RGBA",(300,300)) as image:
+        with Image.new("RGBA",(300,300), "red") as image:
             image.save(next(iter(sources.values())))
         output=self.root/"final.jpg"
         with self.assertRaisesRegex(ValueError,"dimensions changed"):

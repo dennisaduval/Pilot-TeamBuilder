@@ -183,3 +183,69 @@ VolumePilot PR #25 is superseded by the foundation PR in this repository;
 its branch is retained as a historical reference. Do not merge it into VolumePilot.
 Future work resumes here with TB-002 (manifests, offline detection and cache).
 The earlier milestone record describes the original implementation history.
+
+## 2026-11-26 — TB-002 / 0.2.0.dev0
+
+### Implemented increment
+
+- Strict schema-v1 manifest parser, recursive PNG inventory and explicit
+  per-athlete capture scale/relative height/geometry/provenance. Unknown values
+  remain review items rather than canvas-based guesses. See MANIFEST.md.
+- Manifest-to-analysis-to-layout CLI, optional single draft JPEG, complete
+  per-athlete results, explicit exclusions, manual head/row/inch-offset records,
+  duplicate-content and unlisted-PNG checks. All active inputs must pass source
+  preflight before layout. Layout collision warnings remain review flags.
+- Offline native Swift Vision helper, native-architecture macOS build script,
+  all-face observation contract, revision 3, default automatic compute selection
+  and explicit CPU retry. Reduced-resolution RGBA preprocessing with neutral
+  matte and independent x/y source-coordinate mapping.
+- Hair-inclusive alpha head estimates near detected faces, truncated-window
+  review checks. Anatomical face rectangles remain separate in analysis reports.
+- SQLite WAL cache keyed by source SHA-256, helper/OS/compute identity and
+  preprocessing version. Cache survives restart; source/model changes invalidate;
+  manual corrections preserve raw detections; failed requests are not cached.
+- Bounded immutable PNG snapshots, transparency/dimension validation, source
+  content hashes checked against bytes actually decoded during final rendering.
+  Existing renderer now uses the same safe loader.
+- Tests exercise preflight, metadata uncertainty, coordinate mapping, CPU retry,
+  all-face preservation, cache reuse/invalidation/corruption/restart, duplicate
+  input, exclusions, source changes, full CLI rendering and review exit codes.
+
+### Validation and operational limits
+
+49 tests discovered locally with Python 3.13 and Pillow 11.3.0: 48 pass; one native
+macOS helper smoke test is skipped on Linux. CI builds the native helper and
+runs default/CPU blank-image smoke tests on macOS; these do not establish actual
+face detection accuracy. Remote results are tracked in the TB-002 pull request.
+
+No actual athlete photographs are available. No automatic physical-height
+estimation, crop metadata recovery, eye/shoulder/foot landmark adapter or
+silhouette-aware face occlusion solver has been validated. Capture metadata must
+be provided/reviewed explicitly. Automatic detection is Mac-only; other platforms
+can use reviewed manual-head records. Python adapter tests use injected synthetic
+faces; production confidence thresholds/hair bounds need real sample validation.
+The Swift source is compiled/tested on macOS CI, not on this Linux workstation.
+Native binary signing, notarization and app packaging remain future milestones.
+
+The initial repo foundation PR #1 remains unmerged. Develop this increment on
+its feature head with a stacked PR so foundation review can remain independent.
+Merge #1 first, then retarget the TB-002 PR to main before merging it. No existing
+VolumePilot/PanoBuilder application or main branch is modified by this increment.
+
+Continue with TB-003: production desktop review UI, saved jobs/templates, large
+panoramic preview and correction tools; keep source preflight/calibration visible.
+Before unattended routing, complete TB-004 stable handoff/state/recovery/print
+idempotency and refine alpha-aware face visibility. Real photographs/templates
+will validate quality and timing when available, without blocking UI development.
+
+### Native API references
+
+- https://developer.apple.com/documentation/vision/vndetectfacerectanglesrequest
+- https://developer.apple.com/documentation/vision/vnrequest/supportedcomputestagedevices
+- https://developer.apple.com/documentation/vision/vnrequest/setcomputedevice(_:for:)
+- https://developer.apple.com/documentation/vision/vnrequest/usescpuonly
+
+Modern CPU assignment selects a supported CPU device per compute stage on macOS
+14+. The legacy property is only used on macOS 13. Vision chooses its own devices
+in default mode; this is not a promise that each operation uses a particular GPU
+or Neural Engine. Benchmarking with real athlete PNGs remains necessary.

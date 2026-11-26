@@ -6,6 +6,7 @@ from math import isfinite
 from pathlib import Path
 
 from .model import CompositionSettings, Corrections, Rect
+from .discovery import is_system_entry, source_paths
 
 
 def positive(value, label):
@@ -54,7 +55,7 @@ def inventory(folder: Path) -> dict:
     folder = folder.resolve(strict=True)
     if not folder.is_dir():
         raise ValueError("Choose an existing team folder.")
-    paths = sorted(folder.rglob("*"))
+    paths = source_paths(folder)
     if any(p.is_symlink() for p in paths):
         raise ValueError("Team folders cannot contain symbolic links.")
     images = [p for p in paths if p.is_file() and p.suffix.lower() == ".png"]
@@ -93,6 +94,8 @@ def load_manifest(path: Path) -> TeamManifest:
         keys(raw, ("id", "file", "capture", "manual_head", "excluded", "exclusion_reason"), "athlete")
         name = text(raw.get("file"), "athlete file")
         relative = Path(name)
+        if is_system_entry(relative):
+            raise ValueError("macOS metadata files cannot be athlete images.")
         if relative.is_absolute() or ".." in relative.parts or "\\" in name:
             raise ValueError("Image paths must be relative paths within source_folder.")
         source = folder / relative

@@ -5,6 +5,7 @@ from pathlib import Path
 from time import perf_counter
 
 from .composition import compose
+from .discovery import source_paths
 from .detection import measure_head
 from .detection_cache import DetectionCache
 from .manifests import TeamManifest
@@ -30,7 +31,7 @@ def analyze_team(manifest: TeamManifest, table: RowTable, detector,
     detection_seconds = 0.0
     decode_seconds = 0.0
     declared = {e.path.resolve() for e in manifest.entries}
-    all_paths = list(manifest.source_folder.rglob("*"))
+    all_paths = source_paths(manifest.source_folder)
     if any(p.is_symlink() for p in all_paths):
         issues.append("Source folder contains symbolic links; remove them before processing.")
     observed = {p for p in all_paths if p.is_file() and p.suffix.lower() == ".png"}

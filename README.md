@@ -73,6 +73,18 @@ cache beside the manifest in `.pilot-teambuilder/`. `--cache` selects a differen
 database; `--refresh-detections` bypasses cached face results. Manual head edits
 never replace cached raw detections. See [manifest contract](docs/MANIFEST.md).
 
+For private local image batches, run the non-destructive inspection harness:
+
+```sh
+python scripts/inspect_sample_batch.py /path/to/private-test-images --report /path/to/new-inspection.json
+```
+
+It verifies PNG decoding, counts every image by team, checks content duplicates,
+records alpha bounds at multiple thresholds, and exports only selected capture
+hints. It performs no face detection, uploads or source modifications. Known
+macOS archive metadata (`__MACOSX`, `._*`, `.DS_Store`) is ignored consistently
+by inventory and preflight; other hidden athlete PNGs remain included.
+
 Use `--rows /path/to/row_counts.csv` to select an external row table.
 
 ## Implemented

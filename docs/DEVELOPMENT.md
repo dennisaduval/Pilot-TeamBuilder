@@ -258,3 +258,48 @@ Modern CPU assignment selects a supported CPU device per compute stage on macOS
 14+. The legacy property is only used on macOS 13. Vision chooses its own devices
 in default mode; this is not a promise that each operation uses a particular GPU
 or Neural Engine. Benchmarking with real athlete PNGs remains necessary.
+
+## 2026-11-26 — First real-image sample inspection
+
+Actual private photography is now available; the earlier statement that samples
+were unavailable describes the initial TB-002 implementation only.
+
+- Inspected 44 extracted RGBA PNGs in four team folders, with counts 11, 11, 5,
+  and 17. All decode successfully at 4000 × 6000 (24 MP); no content duplicates.
+- The 17-image team exercises the exact (8,9) two-row CSV configuration; the
+  other three teams exercise single-row configurations. All photos retain the
+  same camera-model and 50-mm focal-length metadata. Matching EXIF is supporting
+  evidence, not proof of identical distance, crop or physical height.
+- The operator explicitly confirmed the original canvas and extraction scale
+  were retained. Source scale 1.0 is therefore appropriate for THIS sample set;
+  it must not become an unverified default for future jobs. Private local
+  manifests record that confirmation; relative-height measurements remain unset
+  pending face/head/foot validation. No height is inferred from raw alpha height.
+- Visible cases include head bows, floor reflections, wide arms/poses and large
+  relative athlete-size differences. Raw nonzero alpha reaches the canvas bottom
+  in all 44 images, confirming that reflection extent is unsuitable as a foot
+  anchor. Body content must be distinguished from reflections and accessories.
+- Twenty PNGs contain faint alpha whose bounds differ by more than 32 pixels
+  from an alpha>8 support mask; largest measured extent difference is 1175 pixels.
+  These are extraction-residue diagnostics, not invalid images. No faint pixels,
+  reflections or accessories were removed or altered during inspection. Keep
+  raw/supported/anatomical bounds distinct before refining layout containment.
+- Added a private local sample inspector with selected EXIF hints, alpha-threshold
+  diagnostics, hashes, counts and per-image results. It never emits GPS, authors,
+  camera serials or raw XMP. Full decoding plus hashing/diagnostics took about
+  27 seconds on the Linux development host; this excludes face detection/rendering
+  and is not an Apple Silicon production-speed estimate.
+- Fixed source discovery so Finder metadata and AppleDouble archive sidecars
+  cannot become extra athletes or invalidate an otherwise complete manifest.
+  Ordinary hidden PNGs remain included, and invalid real PNGs stay visible as
+  errors. Inventory and preflight use the same discovery rules.
+- Validation: 56 tests discovered locally: 55 pass; native-Mac test skipped on
+  Linux. Five new tests cover metadata sidecars, hidden athletes, end-to-end
+  preflight consistency and non-destructive/private sample inspection. The samples
+  themselves remain outside Git. Only anonymous aggregate findings and synthetic
+  regression fixtures are committed; no customer images or private reports.
+
+Native Vision cannot execute on this Linux host. This inspection does not claim
+real-photo face/head accuracy or approved composite quality. Continue with the
+review interface and run these private samples through the native detector on a
+Mac when the application is ready; never upload customer photos to public CI.

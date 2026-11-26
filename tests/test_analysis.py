@@ -61,6 +61,13 @@ class AnalysisTests(unittest.TestCase):
         self.assertEqual(self.detector.calls,1)
         self.assertEqual(first.layout,second.layout)
 
+    def test_macos_sidecars_are_ignored_by_preflight_as_well_as_inventory(self):
+        (self.folder / "._athlete-000.png").write_bytes(b"AppleDouble metadata")
+        metadata = self.folder / "__MACOSX"
+        metadata.mkdir()
+        (metadata / "._athlete.png").write_bytes(b"AppleDouble metadata")
+        self.assertEqual(self.analyze().report["status"], "ready")
+
     def test_cache_refresh_and_source_change(self):
         self.analyze()
         self.analyze(refresh=True)

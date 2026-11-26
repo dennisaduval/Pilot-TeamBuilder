@@ -183,6 +183,7 @@ class TeamBuilderApp:
         self.job_box.bind("<<ComboboxSelected>>", self._open_recent)
         for text_, command in (
             ("New job", self.new),
+            ("Demo", self.demo),
             ("Open…", self.open),
             ("Import team…", self.import_team),
             ("Save", self.save),
@@ -455,6 +456,11 @@ class TeamBuilderApp:
         if path:
             self.store = JobStore()
             self.set_job(new_job(Path(path)))
+
+    def demo(self):
+        if self._discard():
+            self.store = JobStore()
+            self.set_job(make_demo(self.data_dir / "Demos" / uuid4().hex))
 
     def open(self):
         if not self._discard():

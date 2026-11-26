@@ -18,12 +18,13 @@ class DesktopSmokeTests(unittest.TestCase):
 
         from PIL import Image, ImageGrab
 
-        from pilot_teambuilder.app import TeamBuilderApp, make_demo
+        from pilot_teambuilder.app import TeamBuilderApp
 
         with tempfile.TemporaryDirectory() as temp:
             folder = Path(temp)
             root = tk.Tk()
-            app = TeamBuilderApp(root, folder / "state", make_demo(folder / "demo"))
+            app = TeamBuilderApp(root, folder / "state")
+            app.demo()
             try:
 
                 def wait_for(predicate):

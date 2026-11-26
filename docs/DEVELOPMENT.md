@@ -352,6 +352,13 @@ signature verification and frozen-app startup smoke. The bundle uses an ad-hoc
 signature and is not Developer-ID signed/notarized. Packaging results are tracked
 in PR #3; do not claim an event release or private-photo Mac validation.
 
+Preview revision 7574a64 built successfully on the native arm64 macOS-26 runner,
+passed bundle signature verification and launched the frozen desktop with its
+bundled row table/helper. CI uploaded the resulting ZIP; no Python/Xcode setup
+is required on the test Mac. The Linux GUI smoke and Windows/Mac tests also passed.
+A Demo toolbar action provides the same synthetic review/export flow without CLI
+commands. Final artifact/check URLs are kept in PR #3's description.
+
 PR sequencing: this increment is based on PR #2 head 7e664ed, while #1 and #2
 remain unmerged. TB-003 is a stacked PR against #2's feature branch. Merge #1,
 retarget #2 to main and merge it, then retarget TB-003 to main before merging.

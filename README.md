@@ -22,6 +22,7 @@ Tk/Tcl is required (normally supplied with the desktop Python distribution;
 Linux users may need their distribution's tkinter package). On a Mac, build the
 native face helper with `python scripts/build_face_helper.py` before automatic
 detection. The synthetic demo works on every supported platform without it.
+The packaged desktop also has a **Demo** toolbar button for testing without commands.
 
 The desktop includes a team queue, large panoramic preview, athlete list,
 inch-based composition controls, and a portrait editor for head boxes and

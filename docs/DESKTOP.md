@@ -4,6 +4,9 @@ The first TeamBuilder desktop is a local Tk application using the existing engin
 not a web UI or a photograph-layout mock. It is a development review build; no
 production installer, Developer ID/notarization, hotfolder watcher or automatic routing is included.
 
+For a first look, click **Demo** in the desktop toolbar. It supplies synthetic
+athletes and templates so the preview/export tools can be tested without setup.
+
 ## Review a job
 
 1. Choose **New job**, select the incoming team folder or collection of team
@@ -78,7 +81,7 @@ Mac desktop usability still need field validation before release.
 The interface follows the supplied VolumePilot guide's navy/royal/orange/sky/cloud/
 instrument palette, sparse orange actions and Inter-first typography with native
 fallbacks. This milestone uses text branding; a compact approved logo variant,
-native application icon, packaging and final Mac accessibility review remain open.
+native application icon, production packaging and final Mac accessibility review remain open.
 
 ## Apple Silicon preview bundle
 

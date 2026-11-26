@@ -35,3 +35,14 @@ jobs:
           name: synthetic-desktop-preview
           path: desktop-review.png
           if-no-files-found: ignore
+      - name: Build Apple Silicon desktop preview
+        if: runner.os == 'macOS'
+        run: |
+          python -m pip install PyInstaller==6.22.3
+          python scripts/build_macos_preview.py
+      - uses: actions/upload-artifact@v4
+        if: runner.os == 'macOS'
+        with:
+          name: Pilot-TeamBuilder-macOS-arm64-preview
+          path: dist/Pilot-TeamBuilder-*-macOS-arm64-preview.zip
+          if-no-files-found: error

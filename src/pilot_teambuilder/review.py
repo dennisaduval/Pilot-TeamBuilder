@@ -10,7 +10,7 @@ from pathlib import Path
 
 from .composition import center_out_slots
 from .discovery import is_system_entry, png_paths
-from .manifests import inventory, manifest_from_data
+from .manifests import inventory, load_manifest, manifest_from_data
 from .model import CompositionSettings
 from .rows import validate_rows
 
@@ -63,6 +63,29 @@ def new_job(incoming: Path, name: str | None = None) -> dict:
         "teams": teams,
         "selected_team": 0,
     }
+
+
+def import_manifest(job: dict | None, path: Path) -> dict:
+    parsed = load_manifest(path)
+    data = json.loads(path.read_text())
+    data["source_folder"] = str(parsed.source_folder)
+    result = (
+        deepcopy(job)
+        if job is not None
+        else new_job(parsed.source_folder, parsed.team_name)
+    )
+    if job is None:
+        result["teams"] = []
+    if any(t["manifest"]["team_id"] == parsed.team_id for t in result["teams"]):
+        raise ValueError(
+            "This team is already in the job. Its existing corrections were kept."
+        )
+    result["teams"].append(
+        {"manifest": data, "anchors": {}, "templates": "", "exports": []}
+    )
+    result["selected_team"] = len(result["teams"]) - 1
+    validate_job(result, path.parent)
+    return result
 
 
 def validate_job(job: dict, base_dir: Path):

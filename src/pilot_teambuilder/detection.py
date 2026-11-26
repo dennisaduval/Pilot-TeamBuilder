@@ -7,6 +7,7 @@ from math import isfinite
 from pathlib import Path
 import platform
 import subprocess
+import sys
 import tempfile
 
 from PIL import Image
@@ -46,7 +47,9 @@ def parse_faces(payload: dict, size: tuple[int, int]) -> tuple[Face, ...]:
 
 class VisionDetector:
     def __init__(self, helper: Path | None = None, cpu_only: bool = False):
-        self.helper = helper or Path(__file__).resolve().parents[2] / "bin/TeamFaceDetector"
+        bundle = getattr(sys, "_MEIPASS", None)
+        root = Path(bundle) if bundle else Path(__file__).resolve().parents[2]
+        self.helper = helper or root / "bin/TeamFaceDetector"
         self.cpu_only = cpu_only
 
     @property

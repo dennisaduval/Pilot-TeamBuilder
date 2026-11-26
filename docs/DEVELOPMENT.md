@@ -333,7 +333,7 @@ after rendering and source hashes against the decoded bytes. Manual out-of-area
 placements block export; conservative overlap warnings may be explicitly reviewed.
 Saved jobs use staged atomic writes and reject conflicting external edits.
 
-Local validation: 71 tests discovered, 69 pass, native-Mac and graphical-display
+Local validation: 73 tests discovered, 71 pass, native-Mac and graphical-display
 tests skipped on this Linux development session. New tests cover job round trips,
 external file conflicts, source-normalized height anchors, non-destructive restore,
 manual rows/ranks, template presets, measurement/thumbnail reuse, cache bounds,
@@ -344,11 +344,19 @@ synthetic screenshot artifact are linked from the TB-003 PR. Local Xorg initiali
 but this command environment could not connect a GUI client; no local visual
 inspection is claimed until the CI smoke/screenshot is reviewed.
 
+Initial revision d8fab39 passed Linux, Windows and Apple Silicon Mac CI. The
+actual Linux Tk open/edit/save/export smoke also passed; its synthetic screenshot
+is retained as a workflow artifact. Follow-up adds verified manifest import and
+an Apple Silicon preview bundler (PyInstaller 6.22.3), bundled helper/CSV resolution,
+signature verification and frozen-app startup smoke. The bundle uses an ad-hoc
+signature and is not Developer-ID signed/notarized. Packaging results are tracked
+in PR #3; do not claim an event release or private-photo Mac validation.
+
 PR sequencing: this increment is based on PR #2 head 7e664ed, while #1 and #2
 remain unmerged. TB-003 is a stacked PR against #2's feature branch. Merge #1,
 retarget #2 to main and merge it, then retarget TB-003 to main before merging.
 
-Limits: first developer desktop, no packaged/notarized Mac app; no automatic
+Limits: first developer desktop preview, no notarized production Mac app; no automatic
 head-to-floor physical-height estimation or arbitrary crop/resize calibration;
 no alpha-residue cleaning or silhouette-aware face solver; no hotfolder processing,
 route/print queues, crash recovery, job database or multi-destination approval.

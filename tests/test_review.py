@@ -3,7 +3,13 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from pilot_teambuilder.review import JobStore, ReviewSession, new_job, validate_job
+from pilot_teambuilder.review import (
+    JobStore,
+    ReviewSession,
+    import_manifest,
+    new_job,
+    validate_job,
+)
 from pilot_teambuilder.synthetic import athletes, write_sources
 
 
@@ -50,6 +56,17 @@ class ReviewTests(unittest.TestCase):
             restored.manifest["corrections"]["offsets_in"][e["id"]], [0.125, -0.25]
         )
         self.assertNotIn("excluded", self.job["teams"][0]["manifest"]["athletes"][0])
+
+    def test_imported_manifest_preserves_verified_geometry_and_rejects_duplicate_team(
+        self,
+    ):
+        path = self.folder / "team-manifest.json"
+        manifest = self.job["teams"][0]["manifest"]
+        path.write_text(json.dumps(manifest))
+        imported = import_manifest(None, path)
+        self.assertEqual(imported["teams"][0]["manifest"], manifest)
+        with self.assertRaisesRegex(ValueError, "already in the job"):
+            import_manifest(imported, path)
 
     def test_external_job_changes_are_not_overwritten(self):
         path = self.folder / "job.json"

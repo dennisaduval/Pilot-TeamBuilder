@@ -32,11 +32,18 @@ export history. Current source preflight and conservative visibility checks stil
 apply; physical-height recovery is not automatic in this milestone.
 
 Use **New job** to select one team folder or the parent of several team folders.
+**Import team** reuses an existing verified manifest without discarding its geometry.
 Choose templates and a completed-image folder, confirm unchanged capture scale
 only when verified, analyze, and correct review items. **Approve & export JPEG**
 creates a new numbered 26 × 8-inch JPEG after rechecking the reviewed sources and
 templates. It never sends files to a printer or upload service. Save the job to
 retain edits. See [desktop guide](docs/DESKTOP.md).
+
+Mac CI also builds an Apple Silicon `.app` preview, including Python/Tk, the row
+table and the native detector. It verifies the bundle and performs a startup smoke
+test before uploading the ZIP as a workflow artifact. No Python/Xcode installation
+is needed to run that preview. It has an ad-hoc signature, not a Developer ID or
+Apple notarization; it is a development build for testing, not an event release.
 
 ## Run and test
 

@@ -2,12 +2,13 @@
 
 The first TeamBuilder desktop is a local Tk application using the existing engine,
 not a web UI or a photograph-layout mock. It is a development review build; no
-installer, signing/notarization, hotfolder watcher or automatic routing is included.
+production installer, Developer ID/notarization, hotfolder watcher or automatic routing is included.
 
 ## Review a job
 
 1. Choose **New job**, select the incoming team folder or collection of team
    folders, then save the job JSON somewhere outside the incoming folder.
+   **Import team** can instead reuse a verified CLI manifest and its measurements.
 2. The left queue lists teams and quantities. Choose **Templates** for the current
    team's template folder; default filenames follow the existing `_default`
    conventions. Choose **Output** for completed images. **Row CSV** optionally
@@ -78,3 +79,26 @@ The interface follows the supplied VolumePilot guide's navy/royal/orange/sky/clo
 instrument palette, sparse orange actions and Inter-first typography with native
 fallbacks. This milestone uses text branding; a compact approved logo variant,
 native application icon, packaging and final Mac accessibility review remain open.
+
+## Apple Silicon preview bundle
+
+macOS CI uses pinned PyInstaller 6.22.3 to build an arm64 `.app`, bundling the
+native detector, authoritative row CSV and desktop runtime. It checks the bundle's
+ad-hoc signature and launches the actual frozen binary with a hidden startup smoke
+test before producing a symlink/permission-preserving ZIP. The artifact contains
+that ZIP; extract the outer artifact download, then the inner ZIP to obtain the app.
+
+No Python or Xcode installation is required on the test Mac. This is not a
+notarized production release and may require an explicit macOS security allowance.
+Private photography still needs local field validation. For reproducible builds
+on an Apple Silicon Mac with Python and Xcode tools:
+
+```sh
+python -m pip install -e . PyInstaller==6.22.3
+python scripts/build_macos_preview.py
+```
+
+The builder intentionally fails on other architectures rather than mislabeling
+an Intel binary. Source installations use the repository helper; frozen apps use
+the helper inside the bundle. Demo assets persist under application support so
+a saved demo job does not break when the application closes.

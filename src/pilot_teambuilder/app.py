@@ -17,7 +17,7 @@ from PIL import Image, ImageTk
 
 from .desktop_engine import DesktopEngine, LatestWorker
 from .model import PPI, CompositionSettings
-from .review import JobStore, ReviewSession, new_job, rows_from_layout
+from .review import JobStore, ReviewSession, import_manifest, new_job, rows_from_layout
 
 NAVY, ROYAL, ORANGE, SKY, CLOUD, INSTRUMENT = (
     "#0B1F3A",
@@ -184,6 +184,7 @@ class TeamBuilderApp:
         for text_, command in (
             ("New job", self.new),
             ("Open…", self.open),
+            ("Import team…", self.import_team),
             ("Save", self.save),
             ("Templates…", self.choose_templates),
             ("Output…", self.choose_output),
@@ -484,6 +485,19 @@ class TeamBuilderApp:
         self.session.dirty = False
         self._remember()
         self.status.set("Job and all manual corrections saved.")
+
+    def import_team(self):
+        path = filedialog.askopenfilename(
+            parent=self.root,
+            title="Import verified team manifest",
+            filetypes=[("Team manifest", "*.json")],
+        )
+        if path:
+            job = import_manifest(
+                self.session.job if self.session else None, Path(path)
+            )
+            self.set_job(job)
+            self.session.dirty = True
 
     def set_job(self, job):
         self.token += 1
@@ -1087,10 +1101,20 @@ def main():
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--job", type=Path)
     mode.add_argument("--demo", action="store_true")
+    parser.add_argument("--smoke-test", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args()
     root = tk.Tk()
     demo = make_demo(support_dir() / "Demos" / uuid4().hex) if args.demo else None
     app = TeamBuilderApp(root, job=demo)
+    if args.smoke_test:
+        from .detection import VisionDetector
+        from .rows import RowTable
+
+        RowTable.load(Path(__file__).parent / "data/row_counts.csv")
+        if getattr(sys, "frozen", False) and not VisionDetector().helper.is_file():
+            raise RuntimeError("Packaged native detector is missing.")
+        root.withdraw()
+        root.after(500, app.close)
     if args.job:
         try:
             app.set_job(app.store.load(args.job))

@@ -345,6 +345,7 @@ class ReviewSession:
         self.manifest.setdefault("corrections", {})["rows"] = [
             row for row in rows if row
         ]
+        self.team.pop("requested_rows", None)
         self.touch()
 
     def offset(self, identity, x: float, y: float):

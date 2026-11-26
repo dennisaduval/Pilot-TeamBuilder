@@ -114,6 +114,14 @@ class ReviewTests(unittest.TestCase):
         session.exclude(session.manifest["athletes"][0]["id"])
         self.assertNotIn("requested_rows", session.team)
 
+    def test_manual_row_moves_clear_requested_count(self):
+        session = ReviewSession(self.job)
+        session.request_rows(2)
+        ids = [e["id"] for e in session.manifest["athletes"]]
+        session.move(ids[1], [ids[:2], ids[2:]], target_row=1)
+        self.assertNotIn("requested_rows", session.team)
+        self.assertEqual(list(map(len, session.manifest["corrections"]["rows"])), [1, 2])
+
     def test_requested_row_distributions_preserve_every_athlete_and_capacity(self):
         for count in (*range(1, 70), 128, 257):
             minimum = (count + 15) // 16

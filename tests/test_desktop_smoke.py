@@ -83,6 +83,15 @@ class DesktopSmokeTests(unittest.TestCase):
                 app.exclude()
                 wait_for(lambda: app.view is not old)
                 self.assertEqual(len(app.view.analysis.layout.placements), 17)
+                root.geometry("1240x780")
+                root.update()
+                self.assertLessEqual(
+                    app.analyze_button.winfo_rootx() + app.analyze_button.winfo_width(),
+                    root.winfo_rootx() + root.winfo_width(),
+                )
+                self.assertGreater(app.canvas.winfo_width(), 500)
+                root.geometry("1520x960")
+                root.update()
                 job_path = folder / "job.json"
                 app.store.save(app.session.job, job_path)
                 app.session.dirty = False

@@ -37,6 +37,8 @@ athletes and templates so the preview/export tools can be tested without setup.
    height anchors and offsets. Exclusion resets manual rows to automatic counts.
 8. Save the job to retain manual edits. The app prompts on closing with unsaved
    changes, and refuses to overwrite job files changed by another writer.
+   **Save ▾ → Save a copy** retains your edits when the original job has an external
+   conflict. Both editing panels scroll to remain accessible on smaller laptops.
 
 ## Export
 

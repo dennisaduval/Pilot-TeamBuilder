@@ -107,8 +107,10 @@ class TeamBuilderApp:
         self._theme()
         self._build()
         self.root.title("Pilot TeamBuilder · VolumePilot")
-        self.root.geometry("1520x960")
-        self.root.minsize(1200, 800)
+        width = max(1240, min(1520, root.winfo_screenwidth() - 40))
+        height = max(760, min(960, root.winfo_screenheight() - 80))
+        self.root.geometry(f"{width}x{height}")
+        self.root.minsize(1240, 760)
         self.root.protocol("WM_DELETE_WINDOW", self.close)
         self.root.after(80, self._drain)
         self._load_recent()
@@ -191,9 +193,17 @@ class TeamBuilderApp:
             ("Output…", self.choose_output),
             ("Row CSV…", self.choose_rows),
         ):
-            ttk.Button(actions, text=text_, command=self._guard(command)).pack(
-                side="left", padx=(7, 0)
-            )
+            if text_ == "Save":
+                button = ttk.Menubutton(actions, text="Save ▾")
+                menu = tk.Menu(button, tearoff=False)
+                menu.add_command(label="Save", command=self._guard(self.save))
+                menu.add_command(
+                    label="Save a copy…", command=self._guard(lambda: self.save(True))
+                )
+                button.configure(menu=menu)
+            else:
+                button = ttk.Button(actions, text=text_, command=self._guard(command))
+            button.pack(side="left", padx=(7, 0))
         self.analyze_button = ttk.Button(
             actions,
             text="Analyze / recheck",
@@ -290,9 +300,26 @@ class TeamBuilderApp:
         )
         self.export_button.pack(side="right", padx=(12, 0))
 
+    def _scroll_tab(self, name):
+        host = ttk.Frame(self.tabs)
+        self.tabs.add(host, text=name)
+        surface = tk.Canvas(host, bg=CLOUD, highlightthickness=0, width=300)
+        scroll = ttk.Scrollbar(host, command=surface.yview)
+        scroll.pack(side="right", fill="y")
+        surface.pack(side="left", fill="both", expand=True)
+        surface.configure(yscrollcommand=scroll.set)
+        page = ttk.Frame(surface, padding=10)
+        item = surface.create_window(0, 0, anchor="nw", window=page)
+        page.bind(
+            "<Configure>", lambda e: surface.configure(scrollregion=surface.bbox("all"))
+        )
+        surface.bind(
+            "<Configure>", lambda e: surface.itemconfigure(item, width=e.width)
+        )
+        return page
+
     def _composition_tab(self):
-        page = ttk.Frame(self.tabs, padding=12)
-        self.tabs.add(page, text="Composition")
+        page = self._scroll_tab("Composition")
         fields = (
             ("head_spacing_in", "Head spacing (in)", 0.125),
             ("row_separation_heads", "Row separation (heads)", 0.125),
@@ -349,8 +376,7 @@ class TeamBuilderApp:
         page.columnconfigure(0, weight=1)
 
     def _athlete_tab(self):
-        page = ttk.Frame(self.tabs, padding=10)
-        self.tabs.add(page, text="Athlete")
+        page = self._scroll_tab("Athlete")
         self.portrait = tk.Canvas(page, bg="#D8DDE4", height=340, highlightthickness=0)
         self.portrait.pack(fill="x")
         self.portrait.bind("<Configure>", lambda e: self._draw_portrait())
@@ -473,10 +499,10 @@ class TeamBuilderApp:
         if path:
             self.set_job(self.store.load(Path(path)))
 
-    def save(self):
+    def save(self, copy=False):
         if not self.session:
             return
-        path = self.store.path
+        path = None if copy else self.store.path
         if path is None:
             chosen = filedialog.asksaveasfilename(
                 parent=self.root,

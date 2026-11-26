@@ -75,6 +75,8 @@ class DetectionTests(unittest.TestCase):
                 load_png(path)
             with patch("pilot_teambuilder.sources.MAX_BYTES",10), self.assertRaisesRegex(ValueError,"128-MiB"):
                 load_png(path)
+            with patch("PIL.Image.MAX_IMAGE_PIXELS",100), self.assertRaisesRegex(ValueError,"safe decoded"):
+                load_png(path)
 
     @unittest.skipUnless(sys.platform == "darwin", "Native Vision runs on macOS")
     def test_native_helper_runs_offline_in_default_and_cpu_modes(self):

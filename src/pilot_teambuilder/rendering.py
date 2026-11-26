@@ -11,7 +11,7 @@ from time import perf_counter
 from PIL import Image, ImageOps
 
 from .identification import JobProfile, draw_right_footer
-from .model import ART_SIZE, FINAL_SIZE, Layout, Rect
+from .model import ART_SIZE, FINAL_SIZE, Layout
 from .sources import load_png
 
 
@@ -108,10 +108,15 @@ def render(layout: Layout, sources: dict[str, Path], background: Path, foregroun
                         raise ValueError(f"{p.athlete_id}: source dimensions changed; rebuild layout.")
                     if not p.source_body.contains(source.body, tolerance=1):
                         raise ValueError(f"{p.athlete_id}: alpha bounds differ from layout; rebuild geometry.")
-                    size = max(1, round(image.width * p.scale)), max(1, round(image.height * p.scale))
+                    bounds = source.body
+                    size = max(1, round(bounds.width * p.scale)), max(1, round(bounds.height * p.scale))
                     # One athlete at a time bounds memory independently of team size.
-                    with closing(image.convert("RGBA")) as rgba, closing(rgba.resize(size, Image.Resampling.LANCZOS)) as resized:
-                        canvas.alpha_composite(resized, (round(p.x), round(p.y)))
+                    # Crop empty canvas BEFORE resizing. A tiny cutout in a huge
+                    # transparent PNG must never allocate a huge scaled canvas.
+                    with closing(image.crop((bounds.left, bounds.top, bounds.right, bounds.bottom))) as crop:
+                        with closing(crop.convert("RGBA")) as rgba, closing(rgba.resize(size, Image.Resampling.LANCZOS)) as resized:
+                            canvas.alpha_composite(resized, (round(p.x + bounds.left * p.scale),
+                                                            round(p.y + bounds.top * p.scale)))
             canvas.alpha_composite(fg, (0, 0))
             timings["composite_seconds"] = perf_counter() - last
             draw_right_footer(canvas, team_name, JobProfile(footer_font=font))

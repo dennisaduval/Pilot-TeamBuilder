@@ -213,10 +213,19 @@ The earlier milestone record describes the original implementation history.
 
 ### Validation and operational limits
 
-49 tests discovered locally with Python 3.13 and Pillow 11.3.0: 48 pass; one native
+51 tests discovered locally with Python 3.13 and Pillow 11.3.0: 50 pass; one native
 macOS helper smoke test is skipped on Linux. CI builds the native helper and
 runs default/CPU blank-image smoke tests on macOS; these do not establish actual
-face detection accuracy. Remote results are tracked in the TB-002 pull request.
+face detection accuracy. Initial revision f348286 passed all 49 then-current tests
+on macOS CI, including compiling the Swift helper and default/CPU blank-image
+execution; Windows/Linux CI also passed (native-only test skipped). Final revision
+results are tracked in [PR #2](https://github.com/dennisaduval/Pilot-TeamBuilder/pull/2).
+
+Final review also added a regression for tiny cutouts in very large transparent
+canvases: render crops to actual alpha bounds before scaling, preventing enormous
+temporary allocations while retaining source-coordinate placement. The PNG loader
+converts Pillow decompression-limit failures into preflight issues. Extreme source
+scale values produce explicit review errors instead of numeric overflow failures.
 
 No actual athlete photographs are available. No automatic physical-height
 estimation, crop metadata recovery, eye/shoulder/foot landmark adapter or

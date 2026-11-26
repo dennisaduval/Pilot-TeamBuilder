@@ -71,6 +71,8 @@ def compose(athletes: list[Athlete], table: RowTable,
     head_height = median(a.head.height / a.source_scale for a in active)
     typical_body = median(a.body.height / a.source_scale for a in active)
     natural_scale = settings.height_in * PPI / typical_body
+    if not all(isfinite(v) and v > 0 for v in (head_height, typical_body, natural_scale)):
+        raise ReviewRequired("Capture geometry is outside the supported numeric range; verify source scale.")
     # Treat requested head spacing as a minimum. Wide heads must not overlap
     # simply because the default spacing was chosen for a smaller age group.
     spacing = max(settings.head_spacing_in * PPI / natural_scale,

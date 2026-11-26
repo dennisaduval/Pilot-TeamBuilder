@@ -34,14 +34,17 @@ def load_png(path: Path) -> SourceImage:
         data = handle.read(MAX_BYTES + 1)
     if len(data) > MAX_BYTES:
         raise ValueError("PNG exceeds the 128-MiB input budget.")
-    with Image.open(BytesIO(data)) as opened:
-        if opened.format != "PNG" or "A" not in opened.getbands():
-            raise ValueError("Expected an extracted PNG with an alpha channel.")
-        if opened.width * opened.height > MAX_PIXELS:
-            raise ValueError("PNG exceeds the 64-megapixel decoded image budget.")
-        if getattr(opened, "n_frames", 1) != 1:
-            raise ValueError("Animated PNGs are not supported.")
-        image = ImageOps.exif_transpose(opened)
+    try:
+        with Image.open(BytesIO(data)) as opened:
+            if opened.format != "PNG" or "A" not in opened.getbands():
+                raise ValueError("Expected an extracted PNG with an alpha channel.")
+            if opened.width * opened.height > MAX_PIXELS:
+                raise ValueError("PNG exceeds the 64-megapixel decoded image budget.")
+            if getattr(opened, "n_frames", 1) != 1:
+                raise ValueError("Animated PNGs are not supported.")
+            image = ImageOps.exif_transpose(opened)
+    except Image.DecompressionBombError as error:
+        raise ValueError("PNG exceeds the safe decoded image budget.") from error
     try:
         with image.getchannel("A") as alpha:
             bounds = alpha.getbbox()

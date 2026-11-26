@@ -4,7 +4,7 @@ import Vision
 import ImageIO
 import CoreML
 
-struct Face: Codable {
+struct Face: Encodable {
     let x: Double
     let y: Double
     let width: Double
@@ -12,7 +12,7 @@ struct Face: Codable {
     let confidence: Float
 }
 
-struct Result: Codable {
+struct Result: Encodable {
     let schema_version = 1
     let width: Int
     let height: Int

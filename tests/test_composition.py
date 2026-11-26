@@ -111,6 +111,11 @@ class CompositionTests(unittest.TestCase):
             with self.subTest(changes=changes), self.assertRaises(ReviewRequired):
                 compose([replace(a,**changes)],self.table)
 
+    def test_extreme_capture_scale_is_an_explicit_review_error(self):
+        for scale in (1e-308, 1e308):
+            with self.subTest(scale=scale), self.assertRaises(ReviewRequired):
+                compose([replace(athletes(1)[0],source_scale=scale)],self.table)
+
     def test_corrections_exclusion_and_restore(self):
         people = athletes(3)
         ids = tuple(a.id for a in people)

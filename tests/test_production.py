@@ -160,6 +160,15 @@ class ProductionTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "mixed"):
             select_templates(self.job, team)
 
+    def test_athlete_color_names_do_not_override_the_appended_identifier(self):
+        team = self.job["teams"][0]
+        for index, entry in enumerate(team["manifest"]["athletes"]):
+            entry["file"] = f"Mary_Green_{index}_Orange_team.png"
+        self.assertEqual(select_templates(self.job, team)[2], "orange")
+        for index, entry in enumerate(team["manifest"]["athletes"]):
+            entry["file"] = f"Riley_White_{index}_team.png"
+        self.assertEqual(select_templates(self.job, team)[2], "default")
+
     def test_missing_color_never_falls_back_to_default(self):
         for e in self.job["teams"][0]["manifest"]["athletes"]:
             e["file"] = "one_Purple.png"

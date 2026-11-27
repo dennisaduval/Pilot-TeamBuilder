@@ -44,11 +44,14 @@ def select_templates(job, team):
         if entry.get("excluded"):
             continue
         tokens = [token(t) for t in re.split(r"[_ ]+", Path(entry["file"]).stem)]
-        found = {t for t in tokens if t in known and t != "default"}
-        if len(found) > 1:
-            raise ValueError(f"{entry['file']}: multiple color identifiers; correct the filename.")
-        if found:
-            seen.update(found)
+        # Capture appends the color suffix. Names such as Mary Green must not
+        # override it or become a second color. Allow known processing markers
+        # after that suffix, but never search through athlete names/IDs.
+        while tokens and tokens[-1] in {"team", "primary", "p", "share", "extracted", "cutout"}:
+            tokens.pop()
+        color = tokens[-1] if tokens and tokens[-1] in known and tokens[-1] != "default" else None
+        if color:
+            seen.add(color)
         else:
             uncolored += 1
     if len(seen) > 1 or (seen and uncolored):

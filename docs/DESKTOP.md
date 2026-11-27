@@ -43,8 +43,9 @@ Matching is case-insensitive. `_Default` and color/default combinations such as
 must have PNG transparency, and both must be 3:1 landscape artwork. Templates are
 validated before use and cached by file version.
 
-Color selection reads athlete FILENAME tokens such as `_Orange`, `_Aqua`, `_Green`;
-a later `_team` token is allowed. A color in the team folder name has no authority.
+Color selection reads the appended FILENAME color suffix, such as `_Orange`, `_Aqua`, `_Green`;
+a later `_team` token is allowed. Earlier athlete-name tokens (Green, White, etc.)
+never override the suffix. A color in the team folder name has no authority.
 Every included file must agree. Mixed/missing identifiers, duplicate template roles
 or a missing color pair hold the team with an actionable explanation. A colored
 team never silently falls back to the uncolored default. Custom colors are discovered

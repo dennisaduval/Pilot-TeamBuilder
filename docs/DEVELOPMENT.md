@@ -449,8 +449,8 @@ gray-on-orange ambiguity. Header and window title use actual package __version__
 Added a platform-wide version-display convention; Capture/PanoBuilder/HQ changes
 need their own repository builds and are not claimed as changed here.
 
-Initial local verification: 106 tests discovered, 102 pass, three graphical and one
-native-Mac test skipped. Twenty-three new production cases cover no-approval processing,
+Initial local verification: 107 tests discovered, 103 pass, three graphical and one
+native-Mac test skipped. Twenty-four new production cases cover no-approval processing,
 empty/incremental folders, stability/ready markers, source changes during render,
 source preservation, colors/default overrides, common scale/enlargement, JPEG output,
 routing/deduplication/consumed printing, recovery, exceptions and validation. The new
@@ -477,3 +477,8 @@ A completed automatic team says Completed automatically rather than asking for
 review. Selection boxes are shown only when the correction pane is open. Explicit
 default file choices override ambiguous automatic defaults; ambiguous color pairs
 still hold. GUI harness teardown collects retired Tk roots on the main thread.
+
+Filename-color regression: use the appended suffix (before known processing
+markers), not arbitrary athlete-name tokens. Mary_Green_42_Orange_team selects
+Orange; Riley_White_42_team is uncolored. This prevents false mixed-color errors
+for athlete surnames and keeps color selection aligned with Pilot Capture output.

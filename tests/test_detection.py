@@ -1,9 +1,9 @@
 import json
-from pathlib import Path
 import subprocess
 import sys
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 from PIL import Image
@@ -15,6 +15,10 @@ from pilot_teambuilder.sources import load_png
 
 
 class DetectionTests(unittest.TestCase):
+    def test_packaged_helper_is_resolved_inside_bundle(self):
+        with patch("pilot_teambuilder.detection.sys._MEIPASS", "/tmp/test-bundle", create=True):
+            self.assertEqual(VisionDetector().helper,Path("/tmp/test-bundle/bin/TeamFaceDetector"))
+
     def test_parser_retains_all_faces_and_rejects_bad_coordinates(self):
         payload = {"schema_version":1,"width":100,"height":200,"faces":[
             {"x":1,"y":2,"width":10,"height":20,"confidence":0.9},

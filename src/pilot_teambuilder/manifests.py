@@ -74,13 +74,18 @@ def load_manifest(path: Path) -> TeamManifest:
         raise ValueError(f"Non-finite JSON constant: {value}")
 
     data = json.loads(path.read_text(encoding="utf-8"), parse_constant=reject_constant)
+    return manifest_from_data(data, path.parent)
+
+
+def manifest_from_data(data: dict, base_dir: Path) -> TeamManifest:
+    """Validate an in-memory editor snapshot using the same contract as the CLI."""
     keys(data, ("schema_version", "team_id", "team_name", "source_folder", "athletes",
                 "settings", "corrections"), "team manifest")
     if type(data.get("schema_version")) is not int or data["schema_version"] != 1:
         raise ValueError("Unsupported team manifest schema_version; expected 1.")
     folder = Path(text(data.get("source_folder"), "source_folder"))
     if not folder.is_absolute():
-        folder = path.parent / folder
+        folder = base_dir / folder
     if folder.is_symlink():
         raise ValueError("Source folders cannot be symbolic links.")
     folder = folder.resolve(strict=True)

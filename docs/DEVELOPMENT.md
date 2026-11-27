@@ -303,3 +303,103 @@ Native Vision cannot execute on this Linux host. This inspection does not claim
 real-photo face/head accuracy or approved composite quality. Continue with the
 review interface and run these private samples through the native detector on a
 Mac when the application is ready; never upload customer photos to public CI.
+
+## 2026-11-26 — TB-003 / 0.3.0.dev0 — Initial desktop review
+
+Implemented a separate Tk review layer using PanoBuilder's existing desktop
+pattern: main-thread widgets and queued background image work. Reviewed the
+current PanoBuilder app and the supplied VolumePilot Brand Style Guide v2 before
+implementation. Reused the existing composition, validation, detection, CSV,
+template and final rendering modules; no changes to other VP applications.
+
+Features: saved jobs/recent-job selection; team queue/status/counts; large actual
+panorama preview and placement overlays; athlete list; visual hair/head rectangles
+and anatomical top/foot anchors; manual height ranks, row distributions, row/slot
+moves, exclusions/restoration, 1/8-inch individual dragging; group settings in
+inches; per-team templates and remembered template composition presets; verified
+numbered full-JPEG export and saved export history. See DESKTOP.md.
+
+Added a bounded geometry cache so layout and metadata edits do not repeatedly
+decode all PNGs. It stores only dimensions, bounds, heads and source hashes, keyed
+by current file version and detector identity. Small preview assets have a strict
+64-MiB LRU budget; one worker owns both caches, and at most one replacement task
+waits behind the active task. Stale results are closed rather than displayed.
+Disk face caching is retained. Manual measurement failures never become approved
+metadata or cause silent image omission.
+
+Export rechecks a signature over the actual manifest, layout, source hashes and
+template versions. The renderer additionally checks template versions before and
+after rendering and source hashes against the decoded bytes. Manual out-of-area
+placements block export; conservative overlap warnings may be explicitly reviewed.
+Saved jobs use staged atomic writes and reject conflicting external edits.
+
+Local validation: 73 tests discovered, 71 pass, native-Mac and graphical-display
+tests skipped on this Linux development session. New tests cover job round trips,
+external file conflicts, source-normalized height anchors, non-destructive restore,
+manual rows/ranks, template presets, measurement/thumbnail reuse, cache bounds,
+stale-template export rejection, full-size export, out-of-area export rejection,
+bounded worker replacement, startup retry and an actual Tk review/export flow.
+The GUI smoke runs separately under Xvfb in Linux CI; remote CI results and the
+synthetic screenshot artifact are linked from the TB-003 PR. Local Xorg initialized
+but this command environment could not connect a GUI client; no local visual
+inspection is claimed until the CI smoke/screenshot is reviewed.
+
+Initial revision d8fab39 passed Linux, Windows and Apple Silicon Mac CI. The
+actual Linux Tk open/edit/save/export smoke also passed; its synthetic screenshot
+is retained as a workflow artifact. Follow-up adds verified manifest import and
+an Apple Silicon preview bundler (PyInstaller 6.22.3), bundled helper/CSV resolution,
+signature verification and frozen-app startup smoke. The bundle uses an ad-hoc
+signature and is not Developer-ID signed/notarized. Packaging results are tracked
+in PR #3; do not claim an event release or private-photo Mac validation.
+
+Preview revision 7574a64 built successfully on the native arm64 macOS-26 runner,
+passed bundle signature verification and launched the frozen desktop with its
+bundled row table/helper. CI uploaded the resulting ZIP; no Python/Xcode setup
+is required on the test Mac. The Linux GUI smoke and Windows/Mac tests also passed.
+A Demo toolbar action provides the same synthetic review/export flow without CLI
+commands. Final artifact/check URLs are kept in PR #3's description.
+
+PR sequencing: this increment is based on PR #2 head 7e664ed, while #1 and #2
+remain unmerged. TB-003 is a stacked PR against #2's feature branch. Merge #1,
+retarget #2 to main and merge it, then retarget TB-003 to main before merging.
+
+Limits: first developer desktop preview, no notarized production Mac app; no automatic
+head-to-floor physical-height estimation or arbitrary crop/resize calibration;
+no alpha-residue cleaning or silhouette-aware face solver; no hotfolder processing,
+route/print queues, crash recovery, job database or multi-destination approval.
+Network destinations are selected mounted folders. The initial manual review
+flow requires verified calibration and anchors/height values. Preview/source
+validation remains conservative. Real photo/Apple Silicon UI field tests are still
+needed using the private sample archive. Continue with desktop refinement and
+TB-004 production workflow rather than treating this version as event-ready.
+
+
+## 2026-11-26 — TB-003 / 0.3.1.dev0 — Folder selection and live layout
+
+User field feedback: "Import team" misleadingly required a JSON manifest and hid
+direct PNG selection under "New job." Main toolbar now explicitly offers
+Choose team folder and Open saved job. The advanced manifest importer remains
+available under its accurate name. Direct folders or parent collections load
+without JSON; the source list populates before background analysis completes.
+Adding an existing source selects it without overwriting manual corrections;
+distinct same-named source folders receive distinct job IDs. A real-folder
+selection from the synthetic Demo starts a real job with fresh paths.
+
+The large panorama now has Layout/Athletes tabs underneath. Layout follows the
+user-supplied simulator reference: included athlete count, requested rows,
+back-to-front distribution, and live sliders for row separation, inverted-V,
+head spacing and group scale. Advanced inch controls and visual head/height
+corrections remain available. Athlete count reflects actual included files.
+Auto remains authoritative CSV behavior. Explicit requested rows are a saved
+manual override: divide count by requested rows, put remainder backmost first,
+validate nonempty rows and capacity 16. Exclusion returns to Auto. No source is
+silently omitted and no anatomical height estimator has been invented.
+
+Slider changes debounce for 180 ms and reuse existing geometry/thumbnail caches.
+Pending changes disable approval, flush before save/team changes/close, and
+require an updated preview before export. Tests added for direct directory
+selection without a JSON dialog, preserving edits, same-name identities, valid
+requested distributions through 257 athletes, saved override validation, cached
+rebuilds and actual live-slider/row-picker interactions under Xvfb. Cross-platform
+CI and the rebuilt native bundle are the validation gate for this increment.
+Real photography still requires reviewed head/height data before composition.

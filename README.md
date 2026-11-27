@@ -4,8 +4,53 @@
 
 Repository: [dennisaduval/Pilot-TeamBuilder](https://github.com/dennisaduval/Pilot-TeamBuilder).
 
-Version **0.2.0.dev0**, milestones TB-001 and TB-002. This is an executable
-composition engine with manifest preflight and offline detection, not a production desktop app.
+Version **0.3.1.dev0**, milestones TB-001 through TB-003. Includes an initial
+desktop review application, composition engine, manifest preflight and offline
+detection. Production watching/routing and packaged field releases remain in development.
+
+## Desktop review
+
+After installing the editable package, launch:
+
+```sh
+pilot-teambuilder-desktop
+pilot-teambuilder-desktop --demo
+pilot-teambuilder-desktop --job /path/to/saved-job.json
+```
+
+Tk/Tcl is required (normally supplied with the desktop Python distribution;
+Linux users may need their distribution's tkinter package). On a Mac, build the
+native face helper with `python scripts/build_face_helper.py` before automatic
+detection. The synthetic demo works on every supported platform without it.
+The packaged desktop also has a **Demo** toolbar button for testing without commands.
+
+The desktop includes a team queue, large panoramic preview, athlete list,
+inch-based composition controls, and a portrait editor for head boxes and
+anatomical head/foot anchors. Reviewers can change height order, row counts,
+row/slot assignments, exclusions and individual placement without changing PNGs.
+Saved jobs retain manual corrections, source calibration, template presets and
+export history. Current source preflight and conservative visibility checks still
+apply; physical-height recovery is not automatic in this milestone.
+
+Use **Choose team folder…** to select athlete PNGs or the parent of several team
+folders; no JSON is required. **Open saved job…** restores saved corrections.
+**Import manifest…** is the advanced option for a verified CLI manifest.
+The **Layout** tab beneath the large panorama has live row-spacing, inverted-V,
+horizontal-spacing and group-size sliders, plus requested rows and a distribution
+readout. **Auto** follows the supplied CSV; explicit requested rows preserve every
+included athlete while enforcing 16 per row. **Advanced** retains exact inch fields
+and manual row distributions.
+Choose templates and a completed-image folder, confirm unchanged capture scale
+only when verified, analyze, and correct review items. **Approve & export JPEG**
+creates a new numbered 26 × 8-inch JPEG after rechecking the reviewed sources and
+templates. It never sends files to a printer or upload service. Save the job to
+retain edits. See [desktop guide](docs/DESKTOP.md).
+
+Mac CI also builds an Apple Silicon `.app` preview, including Python/Tk, the row
+table and the native detector. It verifies the bundle and performs a startup smoke
+test before uploading the ZIP as a workflow artifact. No Python/Xcode installation
+is needed to run that preview. It has an ad-hoc signature, not a Developer ID or
+Apple notarization; it is a development build for testing, not an event release.
 
 ## Run and test
 

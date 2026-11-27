@@ -124,6 +124,7 @@ class DesktopSmokeTests(unittest.TestCase):
                 app._draw_panorama()
                 self.assertFalse(app.view.draft)
                 self.assertEqual(len(app.view.analysis.layout.placements), 9)
+                self.assertIn("1 complete", app.summary.get())
                 self.assertEqual(len(list((folder / "Upload").glob("*.jpg"))), 1)
                 self.assertEqual(len(list((folder / "Samples").glob("*.jpg"))), 1)
                 self.assertFalse(failures, failures)
@@ -242,6 +243,8 @@ class DesktopSmokeTests(unittest.TestCase):
                     root.winfo_rootx() + root.winfo_width(),
                 )
                 self.assertGreater(app.canvas.winfo_width(), 500)
+                self.assertLessEqual(app.export_button.winfo_rooty() + app.export_button.winfo_height(), root.winfo_rooty() + root.winfo_height())
+                self.assertLessEqual(app.framing_box.winfo_rooty() + app.framing_box.winfo_height(), app.export_button.winfo_rooty())
                 root.geometry("1520x960")
                 root.update()
                 job_path = folder / "job.json"

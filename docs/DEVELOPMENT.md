@@ -559,3 +559,9 @@ changes, clipped lower-body canaries and legacy-job migration. Actual Tk CI also
 runs automatic nested/color-fallback production with moderate detections and checks
 position controls and guide toggles. Source policy/types and photographic quality
 still need validation on the user's Mac; packaged preview/check results are in PR #4.
+
+Visual validation follow-up: arrange the six live controls in two compact columns
+and use weighted grid sizing for the panorama, reserving footer space before the
+main pane. This keeps Export/framing controls visible on smaller screens. The GUI
+smoke now asserts vertical button bounds. The completed count includes automatic
+production receipts after preview updates, rather than counting manual exports only.

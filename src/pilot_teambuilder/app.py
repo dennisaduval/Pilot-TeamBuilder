@@ -260,13 +260,13 @@ class TeamBuilderApp:
         ).pack(anchor="w", pady=10)
         center = ttk.Frame(main, padding=(4, 8, 12, 0))
         main.add(center, weight=4)
-        ttk.Label(center, textvariable=self.title, style="Title.TLabel").pack(
-            anchor="w"
+        ttk.Label(center, textvariable=self.title, style="Title.TLabel").grid(
+            row=0, column=0, sticky="w"
         )
         self.canvas = tk.Canvas(
             center, background=INSTRUMENT, highlightthickness=0, height=340
         )
-        self.canvas.pack(fill="both", expand=True, pady=(10, 6))
+        self.canvas.grid(row=1, column=0, sticky="nsew", pady=(10, 6))
         self.canvas.bind("<Configure>", lambda e: self._draw_panorama())
         self.canvas.bind("<ButtonPress-1>", self._group_press)
         self.canvas.bind("<ButtonRelease-1>", self._group_release)
@@ -274,7 +274,7 @@ class TeamBuilderApp:
             center,
             text="26 × 8 in  ·  Artwork 24 × 8 in  ·  Drag a selected athlete in ⅛-inch steps",
             style="Sub.TLabel",
-        ).pack(anchor="w")
+        ).grid(row=2, column=0, sticky="w")
         self.issue_label = ttk.Label(
             center,
             textvariable=self.details,
@@ -282,9 +282,11 @@ class TeamBuilderApp:
             wraplength=750,
             justify="left",
         )
-        self.issue_label.pack(fill="x", pady=(8, 10))
-        self.preview_tabs = ttk.Notebook(center, height=290)
-        self.preview_tabs.pack(fill="x", pady=(4, 0))
+        self.issue_label.grid(row=3, column=0, sticky="ew", pady=(8, 10))
+        self.preview_tabs = ttk.Notebook(center, height=225)
+        self.preview_tabs.grid(row=4, column=0, sticky="ew", pady=(4, 0))
+        center.columnconfigure(0, weight=1)
+        center.rowconfigure(1, weight=1, minsize=80)
         layout_page = ttk.Frame(self.preview_tabs, padding=(10, 6))
         athlete_page = ttk.Frame(self.preview_tabs)
         self.preview_tabs.add(layout_page, text="Layout")
@@ -310,7 +312,7 @@ class TeamBuilderApp:
         self._composition_tab()
         self._athlete_tab()
         footer = ttk.Frame(self.root, padding=(16, 10))
-        footer.pack(fill="x")
+        footer.pack(side="bottom", fill="x", before=main)
         self.export_button = ttk.Button(
             footer,
             text="Export selected team",
@@ -369,20 +371,24 @@ class TeamBuilderApp:
         ttk.Label(counts, textvariable=self.distribution).pack(side="right")
         ttk.Label(page, text="Row distribution: back to front · Auto follows the row CSV",
                   style="Sub.TLabel").pack(anchor="w", pady=(0, 4))
-        for key, label, low, high, step, suffix in (
+        slider_grid = ttk.Frame(page)
+        slider_grid.pack(fill="x")
+        slider_grid.columnconfigure(0, weight=1, uniform="sliders")
+        slider_grid.columnconfigure(1, weight=1, uniform="sliders")
+        for index, (key, label, low, high, step, suffix) in enumerate((
             ("row_separation_heads", "Vertical row spacing", 0.5, 3.0, 0.125, " heads"),
             ("v_step_in", "Inverted-V step", 0.0, 0.25, 0.025, " in"),
             ("head_spacing_in", "Horizontal head spacing", 0.25, 2.0, 0.125, " in"),
             ("group_scale", "Job athlete size", 25, 300, 1, "%"),
             ("y_offset_in", "Team up / down", -4, 4, 0.125, " in"),
             ("x_offset_in", "Team left / right", -4, 4, 0.125, " in"),
-        ):
-            row = ttk.Frame(page)
-            row.pack(fill="x", pady=3)
-            ttk.Label(row, text=label, width=24).pack(side="left")
+        )):
+            row = ttk.Frame(slider_grid)
+            row.grid(row=index // 2, column=index % 2, sticky="ew", pady=3, padx=(0, 8) if index % 2 == 0 else (8, 0))
+            ttk.Label(row, text=label, width=18).pack(side="left")
             readout = tk.StringVar(self.root)
             self.live_readouts[key] = (readout, suffix)
-            ttk.Label(row, textvariable=readout, width=11, anchor="e").pack(side="right")
+            ttk.Label(row, textvariable=readout, width=9, anchor="e").pack(side="right")
             slider = ttk.Scale(
                 row, from_=low, to=high, variable=self.values[key],
                 command=lambda value, k=key, s=step: self._live_change(k, value, s),
@@ -1372,9 +1378,9 @@ class TeamBuilderApp:
                     else ("Exported" if self.session.team["exports"] else "Ready")),
             ),
         )
-        exported = sum(bool(t["exports"]) for t in self.session.job["teams"])
+        exported = sum(bool(t["exports"]) or t.get("production", {}).get("state") == "Completed" for t in self.session.job["teams"])
         self.summary.set(
-            f"{len(self.session.job['teams'])} teams · {exported} exported"
+            f"{len(self.session.job['teams'])} teams · {exported} complete"
         )
         layout = self.view.analysis.layout if self.view else None
         if layout:

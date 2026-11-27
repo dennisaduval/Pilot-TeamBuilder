@@ -174,6 +174,15 @@ class ProductionTests(unittest.TestCase):
         pair = select_templates(self.job, self.job["teams"][0])
         self.assertEqual(pair[:2], (Path(self.job["background"]), Path(self.job["foreground"])))
 
+    def test_explicit_default_pair_resolves_ambiguous_auto_defaults(self):
+        bg = self.templates / "Team Background_default.jpg"
+        fg = self.templates / "Team Foreground_default.png"
+        with Image.new("RGB", (900, 300), "red") as image:
+            image.save(self.templates / "Team Background_Default.jpeg")
+        self.job["background"] = str(bg)
+        self.job["foreground"] = str(fg)
+        self.assertEqual(select_templates(self.job, self.job["teams"][0])[:2], (bg, fg))
+
     def test_fixed_job_scale_is_identical_across_teams_and_allows_over_100_percent(self):
         result = self.run_team()
         job = result["job"]

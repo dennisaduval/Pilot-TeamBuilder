@@ -449,8 +449,8 @@ gray-on-orange ambiguity. Header and window title use actual package __version__
 Added a platform-wide version-display convention; Capture/PanoBuilder/HQ changes
 need their own repository builds and are not claimed as changed here.
 
-Initial local verification: 105 tests discovered, 101 pass, three graphical and one
-native-Mac test skipped. Twenty-two new production cases cover no-approval processing,
+Initial local verification: 106 tests discovered, 102 pass, three graphical and one
+native-Mac test skipped. Twenty-three new production cases cover no-approval processing,
 empty/incremental folders, stability/ready markers, source changes during render,
 source preservation, colors/default overrides, common scale/enlargement, JPEG output,
 routing/deduplication/consumed printing, recovery, exceptions and validation. The new
@@ -470,3 +470,10 @@ those corrections bind to source hashes so changed sources are held. An unchange
 autosave clears the dirty flag. Reopening/changing a job is blocked only while the
 current production task is finishing, preventing results from merging into another
 job. Final CI results and download links belong to PR #4.
+
+Final UI inspection caught an internal autosave UUID in the job selector. It now
+shows the saved job name, with a GUI assertion preventing UUID display regression.
+A completed automatic team says Completed automatically rather than asking for
+review. Selection boxes are shown only when the correction pane is open. Explicit
+default file choices override ambiguous automatic defaults; ambiguous color pairs
+still hold. GUI harness teardown collects retired Tk roots on the main thread.

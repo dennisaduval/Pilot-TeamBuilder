@@ -836,6 +836,17 @@ class TeamBuilderApp:
 
         return guarded
 
+    def _recent_labels(self):
+        labels = []
+        for value in self.recent_paths:
+            path = Path(value)
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+                labels.append(data.get("name") or "Saved job")
+            except (OSError, ValueError, AttributeError):
+                labels.append("Saved job (unavailable)")
+        return labels
+
     def _load_recent(self):
         try:
             self.recent_paths = json.loads((self.data_dir / "recent.json").read_text())[
@@ -843,15 +854,15 @@ class TeamBuilderApp:
             ]
         except (OSError, ValueError):
             self.recent_paths = []
-        self.job_box["values"] = [Path(p).stem for p in self.recent_paths]
+        self.job_box["values"] = self._recent_labels()
 
     def _remember(self):
         if self.store.path:
             p = str(self.store.path)
             self.recent_paths = ([x for x in self.recent_paths if x != p] + [p])[-12:]
             (self.data_dir / "recent.json").write_text(json.dumps(self.recent_paths))
-            self.job_box["values"] = [Path(x).stem for x in self.recent_paths]
-            self.recent.set(self.store.path.stem)
+            self.job_box["values"] = self._recent_labels()
+            self.job_box.current(len(self.recent_paths) - 1)
 
     def _discard(self):
         self._flush_live()
@@ -1273,9 +1284,12 @@ class TeamBuilderApp:
                     ):
                         self.export_button.state(["!disabled"])
                     issues = value.analysis.report["issues"]
-                    self.status.set(
-                        "Review required" if issues else "Preview ready for review"
-                    )
+                    if issues or not value.templates_ready:
+                        self.status.set("Needs attention — see the team message above.")
+                    elif self.session.team.get("production", {}).get("state") == "Completed":
+                        self.status.set("Completed automatically · team preview ready")
+                    else:
+                        self.status.set("Team preview ready · start automatic processing to render and deliver")
         except Empty:
             pass
         if not self.closed:
@@ -1429,7 +1443,7 @@ class TeamBuilderApp:
             dash=(5, 4),
         )
         for p in self.view.analysis.layout.placements:
-            if p.athlete_id == self.selected_id:
+            if p.athlete_id == self.selected_id and str(self.tabs) in self.main.panes():
                 b = p.head
                 self.canvas.create_rectangle(
                     x + b.left * scale,

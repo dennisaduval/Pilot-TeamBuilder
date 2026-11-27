@@ -13,6 +13,11 @@ from unittest.mock import patch
     "Run desktop smoke under a graphical display",
 )
 class DesktopSmokeTests(unittest.TestCase):
+    def tearDown(self):
+        # Multiple Tk roots in the harness must be collected on this main thread.
+        import gc
+        gc.collect()
+
     def test_choose_png_folder_uses_directory_picker_and_preserves_corrections(self):
         import tkinter as tk
 
@@ -100,6 +105,7 @@ class DesktopSmokeTests(unittest.TestCase):
                     app.stop_monitor()
                     wait_for(lambda: not app.production_busy)
                     wait_for(lambda: app.view is not None and app.view.analysis.layout is not None)
+                self.assertEqual(app.recent.get(), app.session.job["name"])
                 self.assertFalse(app.view.draft)
                 self.assertEqual(len(app.view.analysis.layout.placements), 9)
                 self.assertEqual(len(list((folder / "Upload").glob("*.jpg"))), 1)

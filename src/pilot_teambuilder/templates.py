@@ -14,7 +14,7 @@ def token(value):
     return re.sub(r"[^a-z0-9]", "", value.casefold()).replace("grey", "gray")
 
 
-def catalog(folder: Path):
+def catalog(folder: Path, *, explicit_default=False):
     result = {}
     pattern = re.compile(r"^Team[ _-]+(Background|Foreground)(?:[ _-]+(.+))?$", re.I)
     for path in sorted(folder.iterdir()):
@@ -28,6 +28,8 @@ def catalog(folder: Path):
         variants = [p for p in parts if p.casefold() != "default"]
         key = token("".join(variants)) if variants else "default"
         if role in result.setdefault(key, {}):
+            if key == "default" and explicit_default:
+                continue
             raise ValueError(f"Duplicate {key} {role}: select an explicit pair or rename duplicates.")
         result[key][role] = path
     return result
@@ -35,7 +37,7 @@ def catalog(folder: Path):
 
 def select_templates(job, team):
     folder = Path(team.get("templates") or job["templates"])
-    pairs = catalog(folder) if folder.is_dir() else {}
+    pairs = catalog(folder, explicit_default=bool(job.get("background") and job.get("foreground"))) if folder.is_dir() else {}
     known = COLORS | set(pairs)
     seen, uncolored = set(), 0
     for entry in team["manifest"]["athletes"]:

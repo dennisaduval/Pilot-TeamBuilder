@@ -323,7 +323,9 @@ class ProductionEngine:
                             problems = ([view.template_issue] if view.template_issue else []) + view.analysis.report["issues"]
                             problems += [f"{r['file']}: {issue}" for r in view.analysis.report["athletes"] for issue in r["issues"]]
                             raise ValueError("; ".join(problems[:4]) or "This team requires attention.")
-                        if job.get("base_scale") is None:
+                        if not job.get("capture_canvas"):
+                            job["capture_canvas"] = view.analysis.report.get("capture_canvas")
+                        if job.get("base_scale") is None and not job.get("job_settings", {}).get("foreground_framing"):
                             factor = current.get("job_settings", {}).get("group_scale", current["teams"][current["selected_team"]]["manifest"].get("settings", {}).get("group_scale", 1.0))
                             job["base_scale"] = view.analysis.layout.global_scale / factor * 0.85
                             job["capture_canvas"] = view.analysis.report.get("capture_canvas")

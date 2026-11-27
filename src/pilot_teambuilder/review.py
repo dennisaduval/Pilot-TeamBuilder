@@ -37,7 +37,7 @@ def new_job(incoming: Path, name: str | None = None, *, allow_empty=False) -> di
     return {
         "schema_version": 1,
         "hotfolder_mode": True,
-        "framing_version": 1,
+        "framing_version": 2,
         "name": name or incoming.name,
         "incoming": str(incoming),
         "templates": str(incoming.parent / "Templates/Team"),
@@ -45,7 +45,7 @@ def new_job(incoming: Path, name: str | None = None, *, allow_empty=False) -> di
         "row_csv": "",
         "template_presets": {},
         "retained_capture": True,
-        "job_settings": {"crop_body_fraction": 0.55},
+        "job_settings": {"crop_body_fraction": 1.0, "foreground_framing": 1.0},
         "relaxed_detection": True,
         "base_scale": None,
         "settle_seconds": 20,
@@ -220,11 +220,17 @@ class JobStore:
 def upgrade_job(job):
     result = deepcopy(job)
     settings = result.setdefault("job_settings", {})
-    if "crop_body_fraction" not in settings:
-        settings["crop_body_fraction"] = 0.55
-        if not result.get("framing_version"):
-            result["base_scale"] = None
-    result["framing_version"] = 1
+    if result.get("framing_version", 0) < 2:
+        settings["foreground_framing"] = 1.0
+        result["base_scale"] = None
+        # Template presets must not reintroduce the removed lower-body crop.
+        for preset in result.get("template_presets", {}).values():
+            if isinstance(preset, dict):
+                preset["crop_body_fraction"] = 1.0
+                preset["foreground_framing"] = 1.0
+    settings["crop_body_fraction"] = 1.0
+    settings.setdefault("foreground_framing", 1.0)
+    result["framing_version"] = 2
     result.setdefault("relaxed_detection", True)
     return result
 

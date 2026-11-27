@@ -131,7 +131,6 @@ class TeamBuilderApp:
         self.athlete_count = tk.StringVar(root, "0")
         self.requested_rows = tk.StringVar(root, "Auto")
         self.distribution = tk.StringVar(root, "—")
-        self.waist_up = tk.BooleanVar(root, True)
         self.center_guides = tk.BooleanVar(root, True)
         self.setup_summary = tk.StringVar(root, "1  Choose hotfolder   →   2  Job setup   →   3  Start automatic processing")
         self.monitor_caption = tk.StringVar(root, "Start automatic processing")
@@ -397,24 +396,15 @@ class TeamBuilderApp:
             slider.pack(side="left", fill="x", expand=True, padx=10)
         framing = ttk.Frame(page)
         framing.pack(fill="x", pady=(4, 0))
-        self.framing_box = ttk.Checkbutton(framing, text="Waist-up framing (crop lower body)", variable=self.waist_up,
-                                         command=self._guard(self.change_framing))
-        self.framing_box.pack(side="left")
+        ttk.Label(framing, text="Automatic row sizing • foreground hides lower bodies", style="Sub.TLabel").pack(side="left")
         ttk.Checkbutton(framing, text="Center guides", variable=self.center_guides,
                         command=self._draw_panorama).pack(side="right")
         tools = ttk.Frame(page)
         tools.pack(fill="x", pady=(8, 0))
         ttk.Label(tools, text="Job-wide settings", style="Sub.TLabel").pack(side="left")
-        ttk.Button(tools, text="Fit largest team", command=self._guard(self.fit_largest)).pack(side="right", padx=5)
+        ttk.Button(tools, text="Reset automatic fit", command=self._guard(self.fit_largest)).pack(side="right", padx=5)
         ttk.Button(tools, text="Fix a detection / placement…", command=self.show_review).pack(side="right")
         self._refresh_readouts()
-
-    def change_framing(self):
-        if not self.session:
-            return
-        self.values["crop_body_fraction"].set("0.55" if self.waist_up.get() else "1")
-        self.session.job["base_scale"] = None
-        self.apply_settings()
 
     def _refresh_readouts(self):
         for key, (readout, suffix) in self.live_readouts.items():
@@ -746,7 +736,6 @@ class TeamBuilderApp:
             for slider in self.layout_sliders.values():
                 slider.state(["!disabled"])
             self.rows_picker.configure(state="readonly")
-            self.framing_box.state(["!disabled"])
             if self.view and self.view.analysis.layout and self.view.templates_ready:
                 self.export_button.state(["!disabled"])
 
@@ -777,7 +766,6 @@ class TeamBuilderApp:
             for slider in self.layout_sliders.values():
                 slider.state(["disabled"])
             self.rows_picker.configure(state="disabled")
-            self.framing_box.state(["disabled"])
             self.monitor_caption.set("Pause automatic processing")
             self.status.set("Watching hotfolder. Stable teams will process and export automatically.")
         except (OSError, ValueError) as error:
@@ -1067,7 +1055,6 @@ class TeamBuilderApp:
         try:
             for key, var in self.values.items():
                 var.set(f"{values[key] * (100 if key == 'group_scale' else 1):g}")
-            self.waist_up.set(values["crop_body_fraction"] < 1)
             self._refresh_readouts()
             self._sync_rows()
         finally:
@@ -1306,7 +1293,7 @@ class TeamBuilderApp:
                         self.view.close()
                     self.view = value
                     self._update_setup_summary()
-                    if value.analysis.layout and self.session.job.get("base_scale") is None and not self.session.job.get("is_demo") and not self.production_busy and not self.monitoring:
+                    if value.analysis.layout and not self.session.job.get("job_settings", {}).get("foreground_framing") and self.session.job.get("base_scale") is None and not self.session.job.get("is_demo") and not self.production_busy and not self.monitoring:
                         factor = self.session.job.get("job_settings", {}).get("group_scale", 1.0)
                         self.session.job["base_scale"] = value.analysis.layout.global_scale / factor * 0.85
                         self.session.job["capture_canvas"] = value.analysis.report.get("capture_canvas")

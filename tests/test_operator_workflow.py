@@ -1,4 +1,4 @@
-"""Regressions from real operator setup, detection and waist-up framing feedback."""
+"""Regressions from real operator setup, detection and foreground framing feedback."""
 
 import tempfile
 import unittest
@@ -125,20 +125,20 @@ class OperatorWorkflowTests(unittest.TestCase):
         job["teams"][0]["manifest"]["athletes"][0]["file"] = "one_Orange.png"
         self.assertEqual(select_templates(job, job["teams"][0])[:2], (self.bg, self.fg))
 
-    def test_waist_up_scaling_keeps_head_line_steady(self):
+    def test_foreground_scaling_keeps_front_head_bottom_steady(self):
         people = athletes(3)
         table = RowTable({3: (3,)})
-        settings = CompositionSettings(crop_body_fraction=0.55)
+        settings = CompositionSettings(foreground_framing=1)
         small = compose(people, table, replace(settings, group_scale=0.7), fixed_scale=1.8)
         large = compose(people, table, replace(settings, group_scale=1.2), fixed_scale=1.8)
-        self.assertAlmostEqual(min(p.head.top for p in small.placements), min(p.head.top for p in large.placements))
-        self.assertTrue(all(p.source_visible.height < p.source_body.height for p in large.placements))
-        self.assertEqual(large.clip, settings.area)
+        self.assertAlmostEqual(max(p.head.bottom for p in small.placements), max(p.head.bottom for p in large.placements))
+        self.assertTrue(all(p.source_visible is None for p in large.placements))
+        self.assertEqual(large.clip, Rect(0, 0, 7200, 2400))
 
     def test_position_moves_in_inches_without_resizing_team(self):
         people = athletes(3)
         table = RowTable({3: (3,)})
-        settings = CompositionSettings(crop_body_fraction=0.55)
+        settings = CompositionSettings(foreground_framing=1)
         first = compose(people, table, settings, fixed_scale=1.8)
         moved = compose(people, table, replace(settings, y_offset_in=0.5, x_offset_in=-0.125), fixed_scale=1.8)
         self.assertEqual(first.global_scale, moved.global_scale)
@@ -146,8 +146,8 @@ class OperatorWorkflowTests(unittest.TestCase):
             self.assertAlmostEqual(after.head.top - before.head.top, 150)
             self.assertAlmostEqual(after.head.left - before.head.left, -37.5)
 
-    def test_crop_preview_and_final_do_not_render_lower_body(self):
-        # A bright canary occupies the original feet region, below the selected crop.
+    def test_intact_lower_body_is_visible_until_foreground_hides_it(self):
+        # A bright canary occupies the intact feet region. Only the foreground hides it.
         source = self.folder / self.job["teams"][0]["manifest"]["athletes"][0]["file"]
         with Image.open(source) as opened:
             image = opened.copy()
@@ -159,16 +159,28 @@ class OperatorWorkflowTests(unittest.TestCase):
         view = self.engine.view(self.job, None)
         try:
             self.assertIsNotNone(view.analysis.layout)
-            self.assertTrue(all(p.source_visible for p in view.analysis.layout.placements))
-            output = self.root / "waist-up.jpg"
+            self.assertTrue(all(p.source_visible is None for p in view.analysis.layout.placements))
+            self.assertTrue(any(r > 200 and b > 200 and g < 55 for r, g, b in view.panorama.convert("RGB").getdata()))
+            output = self.root / "intact.jpg"
             self.engine.export(self.job, view.review_signature, output)
             with Image.open(output) as image:
                 self.assertEqual(image.size, (7800, 2400))
                 self.assertEqual(image.info["dpi"], (300, 300))
-                # A sample below the placement area is background, not cropped feet.
-                self.assertLess(image.getpixel((3600, 2180))[0], 40)
                 with image.crop((0, 0, 7200, 2400)).resize((720, 240)) as small:
-                    self.assertFalse(any(r > 200 and b > 200 and g < 55 for r, g, b in small.getdata()))
+                    self.assertTrue(any(r > 200 and b > 200 and g < 55 for r, g, b in small.getdata()))
+            # An opaque foreground panel now masks the same intact source pixels.
+            with Image.new("RGBA", (900, 300)) as fg:
+                ImageDraw.Draw(fg).rectangle((0, 160, 899, 299), fill=(11, 31, 58, 255))
+                fg.save(self.fg)
+            masked = self.engine.view(self.job, None)
+            try:
+                self.assertFalse(any(r > 200 and b > 200 and g < 55 for r, g, b in masked.panorama.convert("RGB").getdata()))
+                self.engine.export(self.job, masked.review_signature, self.root / "masked.jpg")
+                with Image.open(self.root / "masked.jpg") as rendered:
+                    with rendered.crop((0, 0, 7200, 2400)).resize((720, 240)) as small:
+                        self.assertFalse(any(r > 200 and b > 200 and g < 55 for r, g, b in small.getdata()))
+            finally:
+                masked.close()
         finally:
             view.close()
 
@@ -188,11 +200,25 @@ class OperatorWorkflowTests(unittest.TestCase):
         old["job_settings"] = {"group_scale": 1.2}
         old["base_scale"] = 2.0
         new = upgrade_job(old)
-        self.assertEqual(new["job_settings"]["crop_body_fraction"], 0.55)
+        self.assertEqual(new["job_settings"]["crop_body_fraction"], 1)
+        self.assertEqual(new["job_settings"]["foreground_framing"], 1)
         self.assertIsNone(new["base_scale"])
         new["base_scale"] = 3.0
         self.assertEqual(upgrade_job(new)["base_scale"], 3.0)
         self.assertEqual(old["base_scale"], 2.0)
+
+    def test_previous_crop_job_migrates_presets_without_losing_corrections(self):
+        old = deepcopy(self.job)
+        old["framing_version"] = 1
+        old["job_settings"] = {"crop_body_fraction": 0.55, "y_offset_in": 0.5}
+        old["template_presets"] = {"design": {"crop_body_fraction": 0.55}}
+        old["teams"][0]["anchors"] = {"kept": [1, 2]}
+        updated = upgrade_job(old)
+        self.assertEqual(updated["job_settings"]["crop_body_fraction"], 1)
+        self.assertEqual(updated["job_settings"]["y_offset_in"], 0.5)
+        self.assertEqual(updated["template_presets"]["design"]["foreground_framing"], 1)
+        self.assertEqual(updated["teams"][0]["anchors"], {"kept": [1, 2]})
+        self.assertEqual(upgrade_job(updated), updated)
 
     def test_nested_team_with_moderate_faces_processes_automatically(self):
         engine = ProductionEngine(self.root / "production", ModerateDetector())

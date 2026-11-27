@@ -69,7 +69,8 @@ class CompositionSettings:
     group_scale: float = 1.0
     x_offset_in: float = 0.0
     y_offset_in: float = 0.0
-    crop_body_fraction: float = 1.0
+    crop_body_fraction: float = 1.0  # Deprecated saved-job field; never trims sources.
+    foreground_framing: float = 0.0  # 1 selects production head-anchored framing.
 
     def validate(self):
         if not all(isfinite(v) for v in vars(self).values()):
@@ -80,6 +81,8 @@ class CompositionSettings:
             raise ValueError("Group scale must be in (0,3]; inverted-V values cannot be negative.")
         if not 0.25 <= self.crop_body_fraction <= 1:
             raise ValueError("Visible body fraction must be between 0.25 and 1.")
+        if self.foreground_framing not in (0, 1):
+            raise ValueError("Foreground framing must be 0 or 1.")
         if not Rect(0, 0, *ART_SIZE).contains(self.area):
             raise ValueError("Athlete placement area must be inside the 24 × 8 artwork.")
 

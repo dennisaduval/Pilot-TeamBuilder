@@ -1,4 +1,4 @@
-# TeamBuilder 0.5.0 — automatic team production
+# TeamBuilder 0.6.0 — automatic team production
 
 Pilot TeamBuilder is an offline hotfolder application. Set up a job once, start
 monitoring, and drop team folders into the incoming folder. Valid teams render
@@ -83,20 +83,26 @@ follows the selected CSV exactly; requested/manual rows are explicit per-team
 exceptions. Layout edits reuse geometry and thumbnail caches. Pending edits
 invalidate export until the new preview is ready.
 
-**Waist-up framing** is the default for these full-body captures. The lower body
-is cropped non-destructively, and the group scales around its back-row head line
-instead of its full-body bounding-box center. This keeps the head line steady
-when sizing changes. Up/down positioning is independent of size. Body overflow
-is intentionally clipped to the placement box in this mode; heads must remain
-inside it. Switch Waist-up off for the previous full-body fit behavior.
+Athlete PNGs remain intact: the foreground hides lower bodies. There is no crop
+checkbox and athletes are not clipped to the placement rectangle. Only the outer
+24 × 8 artwork boundary limits rendered pixels, protecting the identification strip.
 
-The waist-up crop starts at 55% of each visible body's height; it is a practical
-framing estimate, not an anatomical waist detector. The largest initial team
-establishes a common capture-to-output scale at 85% of its fitted visible crop.
-Later teams keep that same capture scale. **Fit largest team** resets the reference
-using the largest team currently in the queue. Existing jobs migrate once to the
-new framing default and recalibrate their size reference, preserving source
-metadata/corrections. Cropping never changes the original PNGs.
+Automatic sizing uses a three-quarter-body framing estimate and fits the team's
+width inside the placement box. Small teams stay naturally centered. Front-row
+head bottoms anchor 1/8 inch above the horizontal center guide, independently of
+scale. Multi-row teams start 10% smaller, then shrink further when necessary so
+all head tops remain inside the placement box. Horizontal spacing remains adjustable.
+Up/down offsets are independent; manual moves outside head/width limits need correction.
+
+These rules were visually informed by the supplied handmade composites. The 75%
+body estimate is a sizing target, not a crop or anatomical landmark guarantee;
+the foreground determines how much body is visible. Each team uses one global
+scale after source-resize normalization, preserving relative proportions. Job-wide
+controls apply consistently, while row count and available width can reduce each
+team's automatic fit. This replaces the earlier fixed 85% largest-team calibration.
+**Reset automatic fit** restores 100% sizing and selects the largest queued team.
+Existing jobs migrate once, retaining corrections, source metadata and completed
+production receipts. Completed output is never reprinted merely by opening a job.
 
 Changes affect previews and queued work. Completed deliveries are not repeated
 when settings change. **Job → Rebuild selected team** deliberately creates a new

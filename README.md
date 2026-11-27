@@ -4,7 +4,7 @@
 
 Repository: [dennisaduval/Pilot-TeamBuilder](https://github.com/dennisaduval/Pilot-TeamBuilder).
 
-Version **0.5.0.dev0**, milestones TB-001 through TB-004. Includes an initial
+Version **0.6.0.dev0**, milestones TB-001 through TB-004. Includes an initial
 desktop review application, composition engine, manifest preflight and offline
 detection. Hotfolder processing and verified delivery are implemented; production field validation remains outstanding.
 

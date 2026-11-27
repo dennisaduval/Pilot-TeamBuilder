@@ -243,8 +243,8 @@ class DesktopSmokeTests(unittest.TestCase):
                     root.winfo_rootx() + root.winfo_width(),
                 )
                 self.assertGreater(app.canvas.winfo_width(), 500)
+                self.assertFalse(hasattr(app, "framing_box"))
                 self.assertLessEqual(app.export_button.winfo_rooty() + app.export_button.winfo_height(), root.winfo_rooty() + root.winfo_height())
-                self.assertLessEqual(app.framing_box.winfo_rooty() + app.framing_box.winfo_height(), app.export_button.winfo_rooty())
                 root.geometry("1520x960")
                 root.update()
                 job_path = folder / "job.json"

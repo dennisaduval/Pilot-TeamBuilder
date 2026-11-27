@@ -565,3 +565,32 @@ and use weighted grid sizing for the panorama, reserving footer space before the
 main pane. This keeps Export/framing controls visible on smaller screens. The GUI
 smoke now asserts vertical button bounds. The completed count includes automatic
 production receipts after preview updates, rather than counting manual exports only.
+
+
+## 2026-11-27 — 0.6.0.dev0 foreground framing
+
+Reviewed all 51 supplied flattened handmade composites privately. Samples show
+centered small groups, wide larger groups, one/two/three rows, and lower-body
+foreground fades. They cannot reveal source crop coordinates or hidden leg pixels;
+no exact anatomical measurements or automated training claims are made. No customer
+photographs or contact sheets are committed to the public repository.
+
+Removed the crop checkbox and source trimming. Deprecated crop_body_fraction is
+accepted for saved-job compatibility but never truncates source bounds. Production
+foreground_framing uses full body widths, head-based placement, a 75%-body natural
+scale estimate, and 10% lower initial multi-row scale. One global team scale is
+bounded by width and the distance between back-row head tops and a front-row
+head-bottom anchor 1/8 inch above the placement center guide. Source resizing is
+undone before that common scale. Foreground hides intact legs; only the artwork
+canvas boundary clips rendered overflow. Identification remains separate.
+
+All job controls stay shared. Per-team width/row fitting supersedes fixed 85%
+largest-team calibration to meet the requested row-aware sizing. Manual offsets
+stay independent and out-of-bounds heads/width remain reviewable errors. Numeric
+foreground_framing=0 retains the legacy full-body engine fit for API compatibility.
+Version-2 job migration resets old base scale and crop presets once, retaining
+non-destructive corrections and delivery receipts. Regression coverage includes
+all 1–45 CSV sizes plus 64/100, single/two-row anchors, width use, resized source
+normalization, intact leg canaries, foreground masking, and legacy job migration.
+Actual photographic results still require a local run with source PNGs/templates;
+flattened samples alone cannot validate detection or final face visibility.

@@ -14,9 +14,9 @@ from uuid import uuid4
 
 from . import __version__
 from .desktop_engine import DesktopEngine
-from .discovery import is_system_entry, source_paths
+from .discovery import source_paths, team_folders
 from .manifests import inventory
-from .review import fingerprint, validate_job
+from .review import fingerprint, upgrade_job, validate_job
 
 
 class SourceNotSettled(ValueError):
@@ -78,10 +78,7 @@ class StableFolders:
         now = monotonic() if now is None else now
         if not root.is_dir():
             raise OSError("Incoming hotfolder is unavailable; reconnect it before resuming.")
-        direct = any(p.is_file() and p.suffix.lower() == ".png" for p in root.iterdir())
-        folders = [root] if direct else [p for p in sorted(root.iterdir())
-            if p.is_dir() and not p.is_symlink() and not is_system_entry(Path(p.name))
-            and p.name.casefold() not in {"templates", "completed", "completed teams", "upload", "samples"}]
+        folders = team_folders(root)
         result = []
         for folder in folders:
             try:
@@ -247,13 +244,13 @@ class ProductionEngine:
             "version": __version__, "files": files, "manifest": team["manifest"],
             "rows": team.get("requested_rows"), "review_hashes": team.get("review_hashes"),
             "settings": job.get("job_settings"), "scale": job.get("base_scale"),
-            "canvas": job.get("capture_canvas"), "retained": job.get("retained_capture", True),
+            "canvas": job.get("capture_canvas"), "retained": job.get("retained_capture", True), "relaxed": job.get("relaxed_detection", True),
             "output": job["output"], "routes": job.get("routes", []),
         })
 
     def tick(self, original, cancel=None, now=None):
         """Poll all folders, then process at most one stable team per invocation."""
-        job = deepcopy(original)
+        job = upgrade_job(original)
         validate_job(job, Path.cwd())
         statuses = {}
         candidates = []
@@ -266,6 +263,14 @@ class ProductionEngine:
                 candidates.append((folder, version, team))
         # The largest initially present team establishes the common job scale.
         candidates.sort(key=lambda item: (-len(item[2]["manifest"]["athletes"]), item[0].name))
+        sources = {folder.resolve() for folder, *_ in candidates}
+        job["teams"] = [team for team in job["teams"] if not any(
+            source != Path(team["manifest"]["source_folder"]).resolve()
+            and source.is_relative_to(Path(team["manifest"]["source_folder"]).resolve())
+            for source in sources
+        )]
+        if job["teams"]:
+            job["selected_team"] = min(job["selected_team"], len(job["teams"]) - 1)
         worked = False
         for folder, version, team in candidates:
             if cancel and cancel.is_set():

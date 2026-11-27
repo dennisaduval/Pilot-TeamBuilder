@@ -1,4 +1,4 @@
-# TeamBuilder 0.4.1 — automatic team production
+# TeamBuilder 0.5.0 — automatic team production
 
 Pilot TeamBuilder is an offline hotfolder application. Set up a job once, start
 monitoring, and drop team folders into the incoming folder. Valid teams render
@@ -7,16 +7,19 @@ never changed, moved or deleted. This is a developer preview, not an event relea
 
 ## Start a job
 
-1. **Choose hotfolder…** selects the incoming folder. It may be empty. Each direct
-   child folder is a team; a folder containing PNGs directly is also supported.
+1. **Choose hotfolder…** selects the incoming folder. It may be empty. Real
+   team folders are discovered at any depth. Container folders are not combined
+   into one team. Common image wrappers such as Edited PNG/Images keep their
+   parent team's name. A folder containing PNGs directly is also supported.
    Folder names are used verbatim as the printed team names, including prefixes.
 2. **Job setup…** selects the template folder, optional explicit default background
    and foreground, row CSV, completed-output location, and optional upload/sample
    delivery folders. The bundled row CSV is the initial selection; another CSV can
    be selected for this job. Settings and queue state save automatically.
-3. Confirm **Original canvas/scale retained; same fixed camera setup** only for
+3. Enable **Player PNGs keep their original size** only for
    the matching capture workflow. Dennis confirmed this for the supplied sample
-   batch. It is a visible job setting and can be disabled for other sources.
+   batch. This describes player photographs, not template dimensions, and can be
+   disabled for resized/cropped source workflows.
 4. **Start automatic processing** watches for stable folders, analyzes all included
    sources, checks layout/template quality and exports valid teams automatically.
    **Pause** prevents new work; a team already publishing/delivering finishes safely.
@@ -55,9 +58,11 @@ cached by file version.
 Color selection reads the appended FILENAME color suffix, such as `_Orange`, `_Aqua`, `_Green`;
 a later `_team` token is allowed. Earlier athlete-name tokens (Green, White, etc.)
 never override the suffix. A color in the team folder name has no authority.
-Every included file must agree. Mixed/missing identifiers, duplicate template roles
-or a missing color pair hold the team with an actionable explanation. A colored
-team never silently falls back to the uncolored default. Custom colors are discovered
+When a complete matching color pair exists, it is used. Otherwise the selected
+explicit default pair, or the automatically discovered default pair, is used.
+The main template label identifies this fallback. Explicitly selecting default
+files also permits a consistent default design for mixed-color source labels.
+Missing all usable pairs or ambiguous template roles still produces a clear error. Custom colors are discovered
 from the template catalog; common colors are recognized even when their pair is missing.
 The main screen shows the actual selected pair for the selected team.
 
@@ -69,19 +74,29 @@ shows specific error text, not just a generic review flag. Reliable detections
 require no individual approval. A failed team displays every source in a labeled
 source overview instead of a blank preview; this is not a finished composite.
 
-The **Layout** sliders set job-wide row separation, inverted-V step, head spacing
-and athlete size (25–300%). Area/offset controls remain under Advanced. **Auto**
+The **Layout** sliders set job-wide row separation, inverted-V step, head spacing,
+athlete size (25–300%), and visible **Team up/down** and **Team left/right** offsets
+in 1/8-inch steps. **Center guides** show the artwork horizontal center and the
+placement-area vertical center; guides never appear in exported images.
+Area controls remain under Advanced. **Auto**
 follows the selected CSV exactly; requested/manual rows are explicit per-team
 exceptions. Layout edits reuse geometry and thumbnail caches. Pending edits
 invalidate export until the new preview is ready.
 
-The largest initially selected/present team establishes a common capture-to-output
-scale at 85% of its fitted size, leaving some enlargement room. Later teams use
-that SAME scale, including smaller teams. No per-athlete head normalization or
-per-team silent shrinking is applied. **Fit largest team** resets the shared
-reference using the largest team currently in the queue. A team that cannot fit
-at the chosen size is held; reduce job size or deliberately refit the reference.
-Values above 100% enlarge the calibrated reference, not the placement boundaries.
+**Waist-up framing** is the default for these full-body captures. The lower body
+is cropped non-destructively, and the group scales around its back-row head line
+instead of its full-body bounding-box center. This keeps the head line steady
+when sizing changes. Up/down positioning is independent of size. Body overflow
+is intentionally clipped to the placement box in this mode; heads must remain
+inside it. Switch Waist-up off for the previous full-body fit behavior.
+
+The waist-up crop starts at 55% of each visible body's height; it is a practical
+framing estimate, not an anatomical waist detector. The largest initial team
+establishes a common capture-to-output scale at 85% of its fitted visible crop.
+Later teams keep that same capture scale. **Fit largest team** resets the reference
+using the largest team currently in the queue. Existing jobs migrate once to the
+new framing default and recalibrate their size reference, preserving source
+metadata/corrections. Cropping never changes the original PNGs.
 
 Changes affect previews and queued work. Completed deliveries are not repeated
 when settings change. **Job → Rebuild selected team** deliberately creates a new
@@ -91,17 +106,24 @@ not an automatic retry of completed output.
 ## Automatic measurements and exceptions
 
 Under confirmed fixed camera/original-canvas geometry, reliable single-face
-positions rank stature against a COMMON capture-plane reference. An anatomical
+positions rank stature against a COMMON capture-plane reference.
+**Relaxed automatic detection** is enabled by default: one face at confidence
+0.5 or higher is accepted, and a clipped hair-analysis window does not force
+manual review. Turn it off in Job setup for the previous strict 0.8 policy. An anatomical
 top estimate from the face excludes hair from height ranking. This is a relative
 ranking proxy, not a physical height measurement. Rendered athlete proportions
 remain unchanged and everyone shares the same capture scale. Changed canvas sizes,
-unknown resizing, missing/multiple/low-confidence faces and uncertain hair windows
-remain exceptions. Their provenance and errors are recorded; no source is omitted.
+unknown resizing and missing/multiple/very-low-confidence faces remain exceptions. Their provenance and errors are recorded; no source is omitted.
 Held teams retry automatically when their corrections, job settings or template
 files change. Unchanged errors do not repeat detection on every poll. Completed
 team deliveries remain protected from repeats.
-Manual head/height anchors, height ranks, exclusions, row/slot assignment and
-individual offsets remain available for recovery.
+An operator-corrected head box can supply a position-based height estimate in
+relaxed mode too; individual height-top/feet markers are optional refinements.
+The **Player PNGs keep original size** checkbox describes source photographs,
+not template dimensions. Missing/multiple faces, very low confidence, changed
+canvases and invalid sources still require correction rather than omission.
+Manual height ranks, exclusions, row/slot assignment and individual offsets
+remain available for recovery.
 
 Face coverage is checked against actual foreground-athlete alpha at reduced
 resolution around the face, replacing conservative full-body-box overlap warnings.

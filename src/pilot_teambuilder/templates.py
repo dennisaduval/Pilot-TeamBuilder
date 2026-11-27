@@ -55,12 +55,19 @@ def select_templates(job, team):
         else:
             uncolored += 1
     if len(seen) > 1 or (seen and uncolored):
+        if job.get("background") and job.get("foreground"):
+            return Path(job["background"]), Path(job["foreground"]), "mixed colors → selected default"
         raise ValueError("Athlete files have mixed or missing color identifiers; use one color for the whole team.")
     variant = next(iter(seen), "default")
     if variant == "default" and job.get("background") and job.get("foreground"):
         return Path(job["background"]), Path(job["foreground"]), variant
     pair = pairs.get(variant, {})
     if set(pair) != {"background", "foreground"}:
+        if job.get("background") and job.get("foreground"):
+            return Path(job["background"]), Path(job["foreground"]), f"{variant} → selected default"
+        default = pairs.get("default", {})
+        if set(default) == {"background", "foreground"}:
+            return default["background"], default["foreground"], f"{variant} → default"
         suffix = "_default" if variant == "default" else "_" + variant.title()
         raise ValueError(f"Missing {variant} template pair. Expected Team Background{suffix}.jpg and Team Foreground{suffix}.png, or select both default files in Job setup.")
     return pair["background"], pair["foreground"], variant

@@ -4,7 +4,7 @@
 
 Repository: [dennisaduval/Pilot-TeamBuilder](https://github.com/dennisaduval/Pilot-TeamBuilder).
 
-Version **0.4.1.dev0**, milestones TB-001 through TB-004. Includes an initial
+Version **0.5.0.dev0**, milestones TB-001 through TB-004. Includes an initial
 desktop review application, composition engine, manifest preflight and offline
 detection. Hotfolder processing and verified delivery are implemented; production field validation remains outstanding.
 
@@ -15,6 +15,10 @@ team names; reliable teams render and deliver automatically without per-athlete
 approval. Saved job-wide settings include templates, color variants, the selected
 row CSV, common athlete size (up to 300%), placement and delivery locations.
 The visible header/window version identifies the actual installed build.
+Nested team folders are discovered recursively. Relaxed detection accepts ordinary
+moderate-confidence poses, while selected default templates provide an explicit
+fallback for missing color designs. Waist-up framing, visible up/down and left/right
+controls, and preview-only center guides support full-body captures in a torso design.
 
 Under the confirmed fixed-camera/original-canvas workflow, face positions provide
 relative stature ranking while athletes retain one common capture scale. Missing,

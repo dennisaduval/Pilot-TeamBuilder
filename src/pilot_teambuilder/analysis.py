@@ -24,7 +24,7 @@ class TeamAnalysis:
 def analyze_team(manifest: TeamManifest, table: RowTable, detector,
                  cache: DetectionCache, refresh: bool = False,
                  measurements: MeasurementCache | None = None, *, retained_capture=False,
-                 capture_canvas=None, fixed_scale=None) -> TeamAnalysis:
+                 capture_canvas=None, fixed_scale=None, min_confidence=0.8, relaxed_heads=False) -> TeamAnalysis:
     started = perf_counter()
     issues = []
     records, people, sources, hashes = [], [], {}, {}
@@ -54,7 +54,7 @@ def analyze_team(manifest: TeamManifest, table: RowTable, detector,
         errors = record["issues"]
         try:
             tick = perf_counter()
-            measured = measurements.measure(e, detector, cache, refresh)
+            measured = measurements.measure(e, detector, cache, refresh, min_confidence=min_confidence, relaxed_heads=relaxed_heads)
             detection_seconds += perf_counter() - tick
             record.update(sha256=measured.sha256, image_size=measured.size,
                           body=asdict(measured.body), detection_method=measured.method,
@@ -65,7 +65,7 @@ def analyze_team(manifest: TeamManifest, table: RowTable, detector,
                 canvas = canvas or measured.size
                 if measured.size != canvas:
                     errors.append("Canvas differs from this job's fixed capture setup; verify cropping/resizing.")
-                elif measured.head is not None and len(measured.faces) == 1 and measured.faces[0].confidence >= 0.8:
+                elif measured.head is not None and len(measured.faces) == 1 and measured.faces[0].confidence >= min_confidence:
                     face = measured.faces[0].box
                     # A COMMON capture-plane reference, not a per-image silhouette
                     # height. Face position ranks stature under the confirmed fixed
@@ -74,6 +74,12 @@ def analyze_team(manifest: TeamManifest, table: RowTable, detector,
                     e = replace(e, source_scale=1.0, relative_height=canvas[1] - top,
                                 geometry_id="job-fixed-capture",
                                 provenance="Job confirms unchanged canvas/scale and fixed camera. Height ranking proxy from anatomical face position; not a physical height measurement.")
+                elif e.manual_head is not None and relaxed_heads:
+                    top = e.manual_head.top + e.manual_head.height * 0.12
+                    scale = e.source_scale or 1.0
+                    e = replace(e, source_scale=scale, relative_height=(canvas[1] - top) / scale,
+                                geometry_id=e.geometry_id or "job-fixed-capture",
+                                provenance="Operator-corrected head position under confirmed fixed capture; approximate height ranking, not a physical measurement.")
             record["capture"] = {"geometry_id": e.geometry_id, "source_scale": e.source_scale,
                                  "relative_height": e.relative_height, "provenance": e.provenance}
             if e.source_scale is None or e.relative_height is None or not e.geometry_id or not e.provenance:
@@ -103,7 +109,7 @@ def analyze_team(manifest: TeamManifest, table: RowTable, detector,
             excluded_ids = set(manifest.corrections.excluded)
             corrections = replace(manifest.corrections, excluded=(), offsets_in={
                 key: value for key, value in manifest.corrections.offsets_in.items() if key not in excluded_ids})
-            layout = compose(people, table, manifest.settings, corrections, fixed_scale=fixed_scale)
+            layout = compose(people, table, manifest.settings, corrections, fixed_scale=fixed_scale, min_confidence=min_confidence)
             issues.extend(layout.issues)
         except ValueError as error:
             issues.append(str(error))

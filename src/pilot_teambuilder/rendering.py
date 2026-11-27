@@ -99,6 +99,18 @@ class TemplateCache:
         self.layers.clear()
 
 
+def composite_subject(canvas, image, position, clip=None):
+    """Shared preview/final clipping. Templates and identification are unaffected."""
+    x, y = position
+    left = max(0, x, round(clip.left) if clip else 0)
+    top = max(0, y, round(clip.top) if clip else 0)
+    right = min(canvas.width, x + image.width, round(clip.right) if clip else canvas.width)
+    bottom = min(canvas.height, y + image.height, round(clip.bottom) if clip else canvas.height)
+    if right > left and bottom > top:
+        with closing(image.crop((left - x, top - y, right - x, bottom - y))) as part:
+            canvas.alpha_composite(part, (left, top))
+
+
 def render(layout: Layout, sources: dict[str, Path], background: Path, foreground: Path,
            team_name: str, destination: Path, cache: TemplateCache | None = None,
            font: str = "", expected_hashes: dict[str, str] | None = None,
@@ -142,15 +154,17 @@ def render(layout: Layout, sources: dict[str, Path], background: Path, foregroun
                         raise ValueError(f"{p.athlete_id}: source dimensions changed; rebuild layout.")
                     if not p.source_body.contains(source.body, tolerance=1):
                         raise ValueError(f"{p.athlete_id}: alpha bounds differ from layout; rebuild geometry.")
-                    bounds = source.body
+                    bounds = p.source_visible or source.body
+                    if not source.body.contains(bounds):
+                        raise ValueError("Visible crop exceeds the original source bounds.")
                     size = max(1, round(bounds.width * p.scale)), max(1, round(bounds.height * p.scale))
                     # One athlete at a time bounds memory independently of team size.
                     # Crop empty canvas BEFORE resizing. A tiny cutout in a huge
                     # transparent PNG must never allocate a huge scaled canvas.
                     with closing(image.crop((bounds.left, bounds.top, bounds.right, bounds.bottom))) as crop:
                         with closing(crop.convert("RGBA")) as rgba, closing(rgba.resize(size, Image.Resampling.LANCZOS)) as resized:
-                            canvas.alpha_composite(resized, (round(p.x + bounds.left * p.scale),
-                                                            round(p.y + bounds.top * p.scale)))
+                            composite_subject(canvas, resized, (round(p.x + bounds.left * p.scale),
+                                                               round(p.y + bounds.top * p.scale)), layout.clip)
             canvas.alpha_composite(fg, (0, 0))
             timings["composite_seconds"] = perf_counter() - last
             draw_right_footer(canvas, team_name, JobProfile(footer_font=font))

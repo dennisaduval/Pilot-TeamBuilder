@@ -131,6 +131,8 @@ class TeamBuilderApp:
         self.athlete_count = tk.StringVar(root, "0")
         self.requested_rows = tk.StringVar(root, "Auto")
         self.distribution = tk.StringVar(root, "—")
+        self.waist_up = tk.BooleanVar(root, True)
+        self.center_guides = tk.BooleanVar(root, True)
         self.setup_summary = tk.StringVar(root, "1  Choose hotfolder   →   2  Job setup   →   3  Start automatic processing")
         self.monitor_caption = tk.StringVar(root, "Start automatic processing")
         self._theme()
@@ -281,7 +283,7 @@ class TeamBuilderApp:
             justify="left",
         )
         self.issue_label.pack(fill="x", pady=(8, 10))
-        self.preview_tabs = ttk.Notebook(center, height=238)
+        self.preview_tabs = ttk.Notebook(center, height=290)
         self.preview_tabs.pack(fill="x", pady=(4, 0))
         layout_page = ttk.Frame(self.preview_tabs, padding=(10, 6))
         athlete_page = ttk.Frame(self.preview_tabs)
@@ -372,6 +374,8 @@ class TeamBuilderApp:
             ("v_step_in", "Inverted-V step", 0.0, 0.25, 0.025, " in"),
             ("head_spacing_in", "Horizontal head spacing", 0.25, 2.0, 0.125, " in"),
             ("group_scale", "Job athlete size", 25, 300, 1, "%"),
+            ("y_offset_in", "Team up / down", -4, 4, 0.125, " in"),
+            ("x_offset_in", "Team left / right", -4, 4, 0.125, " in"),
         ):
             row = ttk.Frame(page)
             row.pack(fill="x", pady=3)
@@ -385,12 +389,26 @@ class TeamBuilderApp:
             )
             self.layout_sliders[key] = slider
             slider.pack(side="left", fill="x", expand=True, padx=10)
+        framing = ttk.Frame(page)
+        framing.pack(fill="x", pady=(4, 0))
+        self.framing_box = ttk.Checkbutton(framing, text="Waist-up framing (crop lower body)", variable=self.waist_up,
+                                         command=self._guard(self.change_framing))
+        self.framing_box.pack(side="left")
+        ttk.Checkbutton(framing, text="Center guides", variable=self.center_guides,
+                        command=self._draw_panorama).pack(side="right")
         tools = ttk.Frame(page)
         tools.pack(fill="x", pady=(8, 0))
         ttk.Label(tools, text="Job-wide settings", style="Sub.TLabel").pack(side="left")
         ttk.Button(tools, text="Fit largest team", command=self._guard(self.fit_largest)).pack(side="right", padx=5)
         ttk.Button(tools, text="Fix a detection / placement…", command=self.show_review).pack(side="right")
         self._refresh_readouts()
+
+    def change_framing(self):
+        if not self.session:
+            return
+        self.values["crop_body_fraction"].set("0.55" if self.waist_up.get() else "1")
+        self.session.job["base_scale"] = None
+        self.apply_settings()
 
     def _refresh_readouts(self):
         for key, (readout, suffix) in self.live_readouts.items():
@@ -499,12 +517,12 @@ class TeamBuilderApp:
         ).grid(row=14, column=0, columnspan=2, sticky="ew")
         ttk.Button(
             page,
-            text="Confirm original canvas & scale",
+            text="Use original player-photo size",
             command=self._guard(self.confirm_scale),
         ).grid(row=15, column=0, columnspan=2, sticky="ew", pady=(22, 6))
         ttk.Label(
             page,
-            text="Use only when the team shares one fixed capture setup and extraction preserved the original canvas and scale.",
+            text="This refers to player PNGs, not templates. Use original photo size to sort heights automatically; individual height measurements are optional.",
             style="Sub.TLabel",
             wraplength=265,
         ).grid(row=16, column=0, columnspan=2, sticky="w")
@@ -526,7 +544,7 @@ class TeamBuilderApp:
             )
         ttk.Label(
             page,
-            text="Drag a head box including hair/bow. Mark anatomical head top and feet above the reflection for height order.",
+            text="Drag a corrected head box if needed. Height sorting is automatic for original-size photos; height/feet markers are optional overrides.",
             style="Sub.TLabel",
             wraplength=275,
         ).pack(anchor="w", pady=(0, 7))
@@ -657,13 +675,15 @@ class TeamBuilderApp:
         ttk.Label(page, text="Automatic naming: Team Background_default.jpg + Team Foreground_default.png\nColor pairs: Team Background_Orange.jpg + Team Foreground_Orange.png (case-insensitive).\nColor comes from player filenames (_Orange, _Aqua, _Green…), not the team folder.\nSelect default files directly above. Both 24 × 8 artwork and 26 × 8 print templates work.\nThe extra 2-inch identification strip is kept separate from the artwork.", style="Sub.TLabel", wraplength=760).grid(row=9, column=0, columnspan=3, sticky="w", pady=12)
         retained = tk.BooleanVar(dialog, job.get("retained_capture", True))
         marker = tk.BooleanVar(dialog, job.get("require_ready", False))
+        relaxed = tk.BooleanVar(dialog, job.get("relaxed_detection", True))
         quiet = tk.StringVar(dialog, str(job.get("settle_seconds", 20)))
-        ttk.Checkbutton(page, text="Original canvas/scale retained; all athletes use the same fixed camera setup", variable=retained).grid(row=10, column=0, columnspan=3, sticky="w", pady=4)
-        ttk.Checkbutton(page, text="Require team.ready file after copying (strongest transfer protection)", variable=marker).grid(row=11, column=0, columnspan=3, sticky="w", pady=4)
-        ttk.Label(page, text="Wait after last folder change (seconds)").grid(row=12, column=0, sticky="w")
-        ttk.Spinbox(page, textvariable=quiet, from_=2, to=3600, increment=1, width=8).grid(row=12, column=1, sticky="w", padx=10)
-        ttk.Label(page, text="Athlete size, spacing and placement are shared across this job. A team that cannot fit is held for attention; it is never silently resized.", style="Sub.TLabel", wraplength=750).grid(row=13, column=0, columnspan=3, sticky="w", pady=8)
-        ttk.Label(page, textvariable=feedback, foreground="#92400E", wraplength=750).grid(row=14, column=0, columnspan=3, sticky="w")
+        ttk.Checkbutton(page, text="Player PNGs keep their original size (automatic height sorting; not template dimensions)", variable=retained).grid(row=10, column=0, columnspan=3, sticky="w", pady=4)
+        ttk.Checkbutton(page, text="Relaxed automatic detection (accept tilted heads and moderate confidence)", variable=relaxed).grid(row=11, column=0, columnspan=3, sticky="w", pady=4)
+        ttk.Checkbutton(page, text="Require team.ready file after copying (strongest transfer protection)", variable=marker).grid(row=12, column=0, columnspan=3, sticky="w", pady=4)
+        ttk.Label(page, text="Wait after last folder change (seconds)").grid(row=13, column=0, sticky="w")
+        ttk.Spinbox(page, textvariable=quiet, from_=2, to=3600, increment=1, width=8).grid(row=13, column=1, sticky="w", padx=10)
+        ttk.Label(page, text="Athlete size, spacing and placement are shared across this job. A team that cannot fit is held for attention; it is never silently resized.", style="Sub.TLabel", wraplength=750).grid(row=14, column=0, columnspan=3, sticky="w", pady=8)
+        ttk.Label(page, textvariable=feedback, foreground="#92400E", wraplength=750).grid(row=15, column=0, columnspan=3, sticky="w")
         def save_setup():
             try:
                 candidate = deepcopy(job)
@@ -673,6 +693,7 @@ class TeamBuilderApp:
                     raise ValueError("Choose a different hotfolder from the main screen to start another job.")
                 candidate["routes"] = list(dict.fromkeys(variables[k].get().strip() for k in ("upload", "samples") if variables[k].get().strip()))
                 candidate["retained_capture"] = retained.get()
+                candidate["relaxed_detection"] = relaxed.get()
                 candidate["require_ready"] = marker.get()
                 candidate["settle_seconds"] = float(quiet.get())
                 from .rows import RowTable
@@ -705,7 +726,7 @@ class TeamBuilderApp:
             except (ValueError, OSError) as error:
                 feedback.set(str(error))
         buttons = ttk.Frame(page)
-        buttons.grid(row=15, column=0, columnspan=3, sticky="e", pady=(12, 0))
+        buttons.grid(row=16, column=0, columnspan=3, sticky="e", pady=(12, 0))
         ttk.Button(buttons, text="Cancel", command=dialog.destroy).pack(side="left", padx=8)
         ttk.Button(buttons, text="Save job setup", style="Primary.TButton", command=save_setup).pack(side="left")
         page.columnconfigure(1, weight=1)
@@ -719,6 +740,7 @@ class TeamBuilderApp:
             for slider in self.layout_sliders.values():
                 slider.state(["!disabled"])
             self.rows_picker.configure(state="readonly")
+            self.framing_box.state(["!disabled"])
             if self.view and self.view.analysis.layout and self.view.templates_ready:
                 self.export_button.state(["!disabled"])
 
@@ -749,6 +771,7 @@ class TeamBuilderApp:
             for slider in self.layout_sliders.values():
                 slider.state(["disabled"])
             self.rows_picker.configure(state="disabled")
+            self.framing_box.state(["disabled"])
             self.monitor_caption.set("Pause automatic processing")
             self.status.set("Watching hotfolder. Stable teams will process and export automatically.")
         except (OSError, ValueError) as error:
@@ -895,7 +918,21 @@ class TeamBuilderApp:
         selected = Path(path).resolve()
         same = self.session and not self.session.job.get("is_demo") and selected == Path(self.session.job["incoming"]).resolve()
         if same:
-            self.request_view(True)
+            from .discovery import team_folders
+            from .production import merge_inventory
+            folders = team_folders(selected)
+            for folder in folders:
+                merge_inventory(self.session.job, folder)
+            self.session.job["teams"] = [team for team in self.session.job["teams"] if not any(
+                folder != Path(team["manifest"]["source_folder"]).resolve()
+                and folder.is_relative_to(Path(team["manifest"]["source_folder"]).resolve())
+                for folder in folders
+            )]
+            job = self.session.snapshot()
+            if job["teams"]:
+                job["selected_team"] = min(job["selected_team"], len(job["teams"]) - 1)
+            self.set_job(job)
+            self._autosave()
             return
         if self.session and self.session.dirty and not self._discard():
             return
@@ -1024,6 +1061,7 @@ class TeamBuilderApp:
         try:
             for key, var in self.values.items():
                 var.set(f"{values[key] * (100 if key == 'group_scale' else 1):g}")
+            self.waist_up.set(values["crop_body_fraction"] < 1)
             self._refresh_readouts()
             self._sync_rows()
         finally:
@@ -1394,8 +1432,8 @@ class TeamBuilderApp:
                 and self.session.entry(self.selected_id).get("manual_head")
                 else ("detected automatically" if record.get("head") else "needs attention")
             ),
-            "Height top: " + ("set" if "height_top" in anchors else "not set"),
-            "Feet: " + ("set" if "floor_y" in anchors else "not set"),
+            "Manual height top: " + ("set" if "height_top" in anchors else "not set (optional)"),
+            "Manual feet: " + ("set" if "floor_y" in anchors else "not set (optional)"),
             "Height order: " + ("available" if height else "needs measurement"),
         ]
         self.athlete_status.set("\n".join(state + record.get("issues", [])))
@@ -1444,6 +1482,10 @@ class TeamBuilderApp:
             outline=SKY,
             dash=(5, 4),
         )
+        if self.center_guides.get():
+            cx, cy = x + area.center_x * scale, y + (area.top + area.bottom) / 2 * scale
+            self.canvas.create_line(cx, y, cx, y + 2400 * scale, fill=SKY, dash=(8, 4), tags="center-guide")
+            self.canvas.create_line(x, cy, x + 7200 * scale, cy, fill=SKY, dash=(8, 4), tags="center-guide")
         for p in self.view.analysis.layout.placements:
             if p.athlete_id == self.selected_id and str(self.tabs) in self.main.panes():
                 b = p.head

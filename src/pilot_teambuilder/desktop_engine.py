@@ -16,8 +16,8 @@ from .detection_cache import DetectionCache
 from .identification import JobProfile, draw_right_footer
 from .manifests import manifest_from_data
 from .measurements import MeasurementCache
-from .rendering import TemplateCache, render
-from .review import fingerprint, requested_distribution
+from .rendering import TemplateCache, composite_subject, render
+from .review import fingerprint, requested_distribution, upgrade_job
 from .rows import RowTable
 from .sources import load_png
 from .templates import select_templates
@@ -103,6 +103,7 @@ class DesktopEngine:
         self.disk.db.close()
 
     def view(self, job: dict, selected_id: str | None, refresh=False):
+        job = upgrade_job(job)
         team = job["teams"][job["selected_team"]]
         data = dict(team["manifest"])
         if job.get("job_settings"):
@@ -120,6 +121,8 @@ class DesktopEngine:
             manifest, table, self.detector, self.disk, refresh, self.measurements,
             retained_capture=job.get("retained_capture", True),
             capture_canvas=job.get("capture_canvas"), fixed_scale=job.get("base_scale"),
+            min_confidence=0.5 if job.get("relaxed_detection", True) else 0.8,
+            relaxed_heads=job.get("relaxed_detection", True),
         )
         for record in result.report["athletes"]:
             expected = team.get("review_hashes", {}).get(record["id"])
@@ -161,7 +164,7 @@ class DesktopEngine:
                     asset = self.assets.get(
                         result.sources[p.athlete_id], result.hashes[p.athlete_id]
                     )
-                    b = asset.bounds
+                    b = p.source_visible or asset.bounds
                     sx, sy = (
                         asset.image.width / asset.source_size[0],
                         asset.image.height / asset.source_size[1],
@@ -180,13 +183,11 @@ class DesktopEngine:
                         asset.image.crop(box) as crop,
                         crop.resize(size, Image.Resampling.LANCZOS) as small,
                     ):
-                        panorama.alpha_composite(
-                            small,
-                            (
-                                round((p.x + b.left * p.scale) * 0.2),
-                                round((p.y + b.top * p.scale) * 0.2),
-                            ),
-                        )
+                        clip = result.layout.clip
+                        if clip:
+                            clip = transform(clip, 0.2, 0, 0)
+                        composite_subject(panorama, small,
+                            (round((p.x + b.left * p.scale) * 0.2), round((p.y + b.top * p.scale) * 0.2)), clip)
                 if layers:
                     panorama.alpha_composite(layers[1])
                 draw_right_footer(panorama, manifest.team_name, JobProfile())
@@ -243,6 +244,8 @@ class DesktopEngine:
             except (OSError, ValueError):
                 draw.text((x + 4, y + 10), "Cannot read image", fill="white")
             draw.text((x + 4, int(y + ch - 16)), entry.relative_path[:22], fill="white")
+        if layers:
+            canvas.alpha_composite(layers[1])
         draw.rectangle((0, 0, 1440, 23), fill="#0B1F3A")
         draw.text((12, 5), "SOURCE OVERVIEW — detection needs attention; not a finished team layout", fill="white")
         draw_right_footer(canvas, manifest.team_name, JobProfile())

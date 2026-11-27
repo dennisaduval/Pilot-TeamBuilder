@@ -69,6 +69,7 @@ class CompositionSettings:
     group_scale: float = 1.0
     x_offset_in: float = 0.0
     y_offset_in: float = 0.0
+    crop_body_fraction: float = 1.0
 
     def validate(self):
         if not all(isfinite(v) for v in vars(self).values()):
@@ -77,6 +78,8 @@ class CompositionSettings:
             raise ValueError("Placement dimensions and spacing must be positive.")
         if not 0 < self.group_scale <= 3 or min(self.v_step_in, self.v_max_drop_in) < 0:
             raise ValueError("Group scale must be in (0,3]; inverted-V values cannot be negative.")
+        if not 0.25 <= self.crop_body_fraction <= 1:
+            raise ValueError("Visible body fraction must be between 0.25 and 1.")
         if not Rect(0, 0, *ART_SIZE).contains(self.area):
             raise ValueError("Athlete placement area must be inside the 24 × 8 artwork.")
 
@@ -106,6 +109,7 @@ class Placement:
     head: Rect
     source_size: tuple[int, int]
     source_body: Rect
+    source_visible: Rect | None = None
 
 
 @dataclass(frozen=True)
@@ -115,6 +119,7 @@ class Layout:
     global_scale: float
     issues: tuple[str, ...]
     schema_version: int = 1
+    clip: Rect | None = None
 
 
 class ReviewRequired(ValueError):

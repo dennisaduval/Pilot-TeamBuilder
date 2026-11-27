@@ -34,7 +34,7 @@ class MeasurementCache:
         stat = path.stat()
         return (str(path.resolve()), stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns)
 
-    def measure(self, entry, detector, disk_cache, refresh=False):
+    def measure(self, entry, detector, disk_cache, refresh=False, *, min_confidence=0.8, relaxed_heads=False):
         signature = self.signature(entry.path)
         # Resolve identity only for automatic measurements. Manual corrections
         # remain usable when the native helper is unavailable.
@@ -45,10 +45,11 @@ class MeasurementCache:
                 identity = detector.identity
             except RuntimeError as error:
                 identity_error = str(error)
-        cached = None if refresh else self.entries.get(signature)
+        cache_key = (signature, min_confidence, relaxed_heads)
+        cached = None if refresh else self.entries.get(cache_key)
         if cached:
             base, auto = cached
-            self.entries.move_to_end(signature)
+            self.entries.move_to_end(cache_key)
             if entry.manual_head is not None:
                 return replace(base, head=entry.manual_head)
             if identity_error:
@@ -80,10 +81,13 @@ class MeasurementCache:
                         )
                     else:
                         confidence = faces[0].confidence
-                        if confidence < 0.8:
-                            errors.append("Face detection confidence is below 0.8.")
+                        if confidence < min_confidence:
+                            errors.append(f"Face detection confidence is below {min_confidence:g}.")
                         head, uncertain = measure_head(source.image, faces[0])
-                        if uncertain:
+                        if relaxed_heads:
+                            head = Rect(max(source.body.left, head.left), max(source.body.top, head.top),
+                                        min(source.body.right, head.right), min(source.body.bottom, head.bottom))
+                        if uncertain and not relaxed_heads:
                             errors.append(
                                 "Head/hair silhouette reaches the analysis window; review head bounds."
                             )
@@ -100,8 +104,8 @@ class MeasurementCache:
                 raise ValueError(
                     "Source changed while measuring; analyze again when copying finishes."
                 )
-        self.entries[signature] = (base, auto)
-        self.entries.move_to_end(signature)
+        self.entries[cache_key] = (base, auto)
+        self.entries.move_to_end(cache_key)
         while len(self.entries) > self.capacity:
             self.entries.popitem(last=False)
         return result

@@ -47,7 +47,7 @@ class DesktopSmokeTests(unittest.TestCase):
                     app.choose_team_folder()
                     self.assertEqual(len(app.session.job["teams"]), 1)
                     self.assertEqual(app.session.team, saved["teams"][0])
-                    self.assertTrue(app.session.dirty)
+                    self.assertFalse(app.session.dirty)  # Re-selection now auto-saves the retained edits.
             finally:
                 if app.session:
                     app.session.dirty = False
@@ -57,7 +57,7 @@ class DesktopSmokeTests(unittest.TestCase):
         import tkinter as tk
 
         from PIL import Image, ImageGrab
-        from test_production import SyntheticDetector
+        from test_operator_workflow import ModerateDetector
 
         from pilot_teambuilder import __version__
         from pilot_teambuilder.app import TeamBuilderApp
@@ -78,6 +78,8 @@ class DesktopSmokeTests(unittest.TestCase):
                 image.save(templates / "Team Background_default.jpg")
             with Image.new("RGBA", (975, 300)) as image:
                 image.save(templates / "Team Foreground_default.png")
+            job["background"] = str(templates / "Team Background_default.jpg")
+            job["foreground"] = str(templates / "Team Foreground_default.png")
             job["routes"] = [str(folder / "Upload"), str(folder / "Samples")]
             root = tk.Tk()
             app = TeamBuilderApp(root, folder / "state", job)
@@ -95,17 +97,31 @@ class DesktopSmokeTests(unittest.TestCase):
                 self.assertIn(__version__, root.title())
                 self.assertEqual(len(app.main.panes()), 2)  # Correction pane hidden.
                 with patch("pilot_teambuilder.app.ProductionEngine",
-                           side_effect=lambda state: ProductionEngine(state, SyntheticDetector())), patch(
+                           side_effect=lambda state: ProductionEngine(state, ModerateDetector())), patch(
                     "pilot_teambuilder.app.DesktopEngine",
-                    side_effect=lambda state: DesktopEngine(state, SyntheticDetector()),
+                    side_effect=lambda state: DesktopEngine(state, ModerateDetector()),
                 ):
                     app.toggle_monitor()
-                    write_sources(incoming / "Automatic Team", athletes(9))
+                    sources = write_sources(incoming / "Event/Division/Automatic Team", athletes(9))
+                    for source in sources.values():
+                        source.rename(source.with_stem(source.stem + "_Aqua"))
                     wait_for(lambda: app.session.job["teams"] and app.session.team.get("production", {}).get("state") == "Completed")
                     app.stop_monitor()
                     wait_for(lambda: not app.production_busy)
                     wait_for(lambda: app.view is not None and app.view.analysis.layout is not None)
                 self.assertEqual(app.recent.get(), app.session.job["name"])
+                self.assertEqual(len(app.canvas.find_withtag("center-guide")), 2)
+                self.assertIn("selected default", app.view.template_names.casefold())
+                before = app.view
+                before_top = min(p.head.top for p in before.analysis.layout.placements)
+                app._live_change("y_offset_in", "0.5", 0.125)
+                wait_for(lambda: app.view is not before)
+                self.assertAlmostEqual(min(p.head.top for p in app.view.analysis.layout.placements) - before_top, 150)
+                app.center_guides.set(False)
+                app._draw_panorama()
+                self.assertEqual(len(app.canvas.find_withtag("center-guide")), 0)
+                app.center_guides.set(True)
+                app._draw_panorama()
                 self.assertFalse(app.view.draft)
                 self.assertEqual(len(app.view.analysis.layout.placements), 9)
                 self.assertEqual(len(list((folder / "Upload").glob("*.jpg"))), 1)

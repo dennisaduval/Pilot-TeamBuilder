@@ -8,7 +8,7 @@ from copy import deepcopy
 from pathlib import Path
 
 from .composition import center_out_slots
-from .discovery import is_system_entry, png_paths
+from .discovery import team_folders
 from .manifests import inventory, load_manifest, manifest_from_data
 from .model import CompositionSettings
 from .rows import validate_rows
@@ -22,24 +22,7 @@ def fingerprint(data) -> str:
 
 def new_job(incoming: Path, name: str | None = None, *, allow_empty=False) -> dict:
     incoming = incoming.resolve(strict=True)
-    folders = (
-        [incoming]
-        if any(
-            p.is_file()
-            and p.suffix.lower() == ".png"
-            and not is_system_entry(Path(p.name))
-            for p in incoming.iterdir()
-        )
-        else [
-            p
-            for p in sorted(incoming.iterdir())
-            if p.is_dir()
-            and not p.is_symlink()
-            and not is_system_entry(Path(p.name))
-            and p.name not in {"Templates", "Completed", "Upload", "Samples"}
-            and png_paths(p)
-        ]
-    )
+    folders = team_folders(incoming)
     if not folders and not allow_empty:
         raise ValueError(
             "Choose a team folder or the incoming folder containing your team folders."
@@ -54,6 +37,7 @@ def new_job(incoming: Path, name: str | None = None, *, allow_empty=False) -> di
     return {
         "schema_version": 1,
         "hotfolder_mode": True,
+        "framing_version": 1,
         "name": name or incoming.name,
         "incoming": str(incoming),
         "templates": str(incoming.parent / "Templates/Team"),
@@ -61,7 +45,8 @@ def new_job(incoming: Path, name: str | None = None, *, allow_empty=False) -> di
         "row_csv": "",
         "template_presets": {},
         "retained_capture": True,
-        "job_settings": {},
+        "job_settings": {"crop_body_fraction": 0.55},
+        "relaxed_detection": True,
         "base_scale": None,
         "settle_seconds": 20,
         "require_ready": False,
@@ -166,6 +151,8 @@ def validate_job(job: dict, base_dir: Path):
     if type(job.get("selected_team")) is not int or (job["teams"] and not 0 <= job["selected_team"] < len(job["teams"])):
         raise ValueError("Invalid selected team in job.")
     from math import isfinite
+    if type(job.get("relaxed_detection", True)) is not bool:
+        raise ValueError("Detection mode must be true or false.")
     if type(job.get("retained_capture", False)) is not bool:
         raise ValueError("Fixed capture setting must be true or false.")
     if type(job.get("settle_seconds", 20)) not in (int, float) or not 0 <= job.get("settle_seconds", 20) <= 3600:
@@ -230,9 +217,21 @@ class JobStore:
         self.path, self.version = target, hashlib.sha256(payload).hexdigest()
 
 
+def upgrade_job(job):
+    result = deepcopy(job)
+    settings = result.setdefault("job_settings", {})
+    if "crop_body_fraction" not in settings:
+        settings["crop_body_fraction"] = 0.55
+        if not result.get("framing_version"):
+            result["base_scale"] = None
+    result["framing_version"] = 1
+    result.setdefault("relaxed_detection", True)
+    return result
+
+
 class ReviewSession:
     def __init__(self, job: dict):
-        self.job = deepcopy(job)
+        self.job = upgrade_job(job)
         self.revision = 0
         self.dirty = False
 
@@ -270,6 +269,7 @@ class ReviewSession:
         self.touch()
 
     def confirm_scale(self):
+        self.job["retained_capture"] = True
         for entry in self.manifest["athletes"]:
             entry["capture"].update(
                 source_scale=1.0,

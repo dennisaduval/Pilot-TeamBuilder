@@ -169,11 +169,14 @@ class ProductionTests(unittest.TestCase):
             entry["file"] = f"Riley_White_{index}_team.png"
         self.assertEqual(select_templates(self.job, team)[2], "default")
 
-    def test_missing_color_never_falls_back_to_default(self):
+    def test_missing_color_uses_visible_default_fallback(self):
         for e in self.job["teams"][0]["manifest"]["athletes"]:
             e["file"] = "one_Purple.png"
-        with self.assertRaisesRegex(ValueError, "Missing purple"):
-            select_templates(self.job, self.job["teams"][0])
+        bg, fg, label = select_templates(self.job, self.job["teams"][0])
+        self.assertEqual(bg, self.templates / "Team Background_default.jpg")
+        self.assertEqual(fg, self.templates / "Team Foreground_default.png")
+        self.assertIn("purple", label)
+        self.assertIn("default", label)
 
     def test_explicit_default_files_need_no_special_names(self):
         bg = self.templates / "Team Background_default.jpg"

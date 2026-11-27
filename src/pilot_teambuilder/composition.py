@@ -29,7 +29,7 @@ def transform(box: Rect, scale: float, x: float, y: float) -> Rect:
 
 def compose(athletes: list[Athlete], table: RowTable,
             settings: CompositionSettings = CompositionSettings(),
-            corrections: Corrections = Corrections(), *, fixed_scale: float | None = None) -> Layout:
+            corrections: Corrections = Corrections(), *, fixed_scale: float | None = None, min_confidence: float = 0.8) -> Layout:
     settings.validate()
     ids = [a.id for a in athletes]
     if len(set(ids)) != len(ids) or any(not i for i in ids):
@@ -49,12 +49,16 @@ def compose(athletes: list[Athlete], table: RowTable,
             raise ReviewRequired(f"{a.id}: expected one head; correct detection or exclude explicitly.")
         if not a.body.contains(a.head):
             raise ReviewRequired(f"{a.id}: head lies outside visible body bounds.")
-        if not isfinite(a.confidence) or not 0.8 <= a.confidence <= 1:
+        if not isfinite(a.confidence) or not min_confidence <= a.confidence <= 1:
             raise ReviewRequired(f"{a.id}: unreliable detection confidence.")
         for value, label in ((a.source_scale, "capture-scale metadata"),
                              (a.relative_height, "relative height")):
             if value is None or not isfinite(value) or value <= 0:
                 raise ReviewRequired(f"{a.id}: missing or invalid {label}.")
+    cropped = settings.crop_body_fraction < 1
+    visible = {a.id: Rect(a.body.left, a.body.top, a.body.right,
+               min(a.body.bottom, max(a.head.bottom, a.body.top + a.body.height * settings.crop_body_fraction)))
+               for a in active}
     ranked = sorted(active, key=lambda a: (-a.relative_height, a.id))
     if corrections.rows is not None:
         flat = [i for row in corrections.rows for i in row]
@@ -77,7 +81,7 @@ def compose(athletes: list[Athlete], table: RowTable,
     # Work in common capture coordinates. Extraction resizing is undone before
     # applying ONE team scale; no per-athlete head-size normalization occurs.
     head_height = median(a.head.height / a.source_scale for a in active)
-    typical_body = median(a.body.height / a.source_scale for a in active)
+    typical_body = median(visible[a.id].height / a.source_scale for a in active)
     natural_scale = settings.height_in * PPI / typical_body
     if not all(isfinite(v) and v > 0 for v in (head_height, typical_body, natural_scale)):
         raise ReviewRequired("Capture geometry is outside the supported numeric range; verify source scale.")
@@ -99,14 +103,14 @@ def compose(athletes: list[Athlete], table: RowTable,
             x = head_x - a.head.center_x * source_scale
             y = head_y - a.head.top * source_scale
             raw.append((a, row_index, slot, source_scale, x, y,
-                        transform(a.body, source_scale, x, y)))
+                        transform(visible[a.id], source_scale, x, y)))
     left = min(r[-1].left for r in raw)
     top = min(r[-1].top for r in raw)
     right = max(r[-1].right for r in raw)
     bottom = max(r[-1].bottom for r in raw)
     area = settings.area
-    available_w = area.width - 2 * abs(settings.x_offset_in * PPI)
-    available_h = area.height - 2 * abs(settings.y_offset_in * PPI)
+    available_w = area.width if cropped else area.width - 2 * abs(settings.x_offset_in * PPI)
+    available_h = area.height * 0.9 if cropped else area.height - 2 * abs(settings.y_offset_in * PPI)
     if min(available_w, available_h) <= 0:
         raise ValueError("Group offset leaves no placement space.")
     if fixed_scale is not None and (not isfinite(fixed_scale) or fixed_scale <= 0):
@@ -114,7 +118,8 @@ def compose(athletes: list[Athlete], table: RowTable,
     fitted = min(natural_scale, available_w / (right - left), available_h / (bottom - top))
     global_scale = (fixed_scale if fixed_scale is not None else fitted) * settings.group_scale
     origin_x = area.center_x + settings.x_offset_in * PPI - (left + right) / 2 * global_scale
-    origin_y = (area.top + area.bottom) / 2 + settings.y_offset_in * PPI - (top + bottom) / 2 * global_scale
+    origin_y = (area.top + area.height * 0.1 + settings.y_offset_in * PPI
+                if cropped else (area.top + area.bottom) / 2 + settings.y_offset_in * PPI - (top + bottom) / 2 * global_scale)
     placements = []
     issues = []
     # Outside first; lower height rank wins ties so the taller center paints last.
@@ -126,15 +131,15 @@ def compose(athletes: list[Athlete], table: RowTable,
             raise ValueError("Manual offsets must be finite inches.")
         scale = source_scale * global_scale
         x, y = origin_x + x * global_scale + dx * PPI, origin_y + y * global_scale + dy * PPI
-        body, head = transform(a.body, scale, x, y), transform(a.head, scale, x, y)
-        if not area.contains(body):
+        body, head = transform(visible[a.id], scale, x, y), transform(a.head, scale, x, y)
+        if not area.contains(head if cropped else body):
             issues.append(f"{a.id}: outside athlete placement area after manual correction.")
         placements.append(Placement(a.id, row_index, slot, scale, x, y, body, head,
-                                    a.image_size, a.body))
+                                    a.image_size, a.body, visible[a.id] if cropped else None))
     # Conservative preflight. Silhouette-aware visibility is a later adapter;
     # body boxes can overflag wide arms, but never certify an obscured face.
     for i, back in enumerate(placements):
         for front in placements[i + 1:]:
             if back.head.overlaps(front.body):
                 issues.append(f"{back.athlete_id}: possible face obstruction by {front.athlete_id}.")
-    return Layout(tuple(placements), counts, global_scale, tuple(issues))
+    return Layout(tuple(placements), counts, global_scale, tuple(issues), clip=area if cropped else None)

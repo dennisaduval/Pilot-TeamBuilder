@@ -513,3 +513,49 @@ sentinels, rounding, preview/final consistency, full JPEG dimensions/identificat
 and the automatic hotfolder flow with full-print templates. Tests and native Mac
 bundle results are recorded in PR #4 before handoff. This does not add strip logos
 or styling, which remain a future identification-layer enhancement.
+
+
+## 2026-11-27 — TB-004 / 0.5.0.dev0 — Real operator automatic framing
+
+User field feedback: nested team folders were not identified correctly, moderate
+face confidence and height-ranking gates prevented automatic output, default
+selection did not resolve missing color templates, original-photo size confirmation
+was misleading, and full-body fitting made waist-up scaling/positioning difficult.
+
+Added shared recursive team-folder discovery for picker and watcher. Real team
+leaves are used rather than aggregate containers; common image wrappers keep the
+parent team name. Re-selecting the same incoming folder rescans it and preserves
+matching corrections; legacy aggregate rows are replaced when actual team leaves
+are discovered. No source files are moved or changed.
+
+Default relaxed mode accepts single faces at >=0.5 and does not block on uncertain
+hair-analysis windows. Strict mode remains available at >=0.8. Geometry cache keys
+include the policy to avoid reusing old strict holds. Height ranking uses the same
+threshold, with a position-based proxy available for corrected manual heads under
+confirmed original-size fixed capture. Missing/multiple/very-low-confidence faces
+are still recoverable exceptions. Clarified source-photo size versus template
+canvas language and made manual height/feet overrides explicitly optional.
+
+Color-specific pairs still win when available. Missing pairs now use explicitly
+selected defaults or a discovered complete default pair, with the fallback visible
+in the main template label. Explicit default choices can also resolve mixed source
+color labels. The source overview shows foreground/background designs even while
+an athlete requires correction.
+
+New waist-up display mode (upper 55% starting crop) preserves full source bounds
+and dimensions for validation and stores a separate visible crop in placements.
+The same clipping helper is used in preview and full render, clipping only athletes
+to the placement box. Full-body mode retains the old complete-body fit contract.
+Waist-up sizing anchors the back head line, so size no longer shifts the group
+upward. Added visible job-wide up/down and left/right controls in 1/8-inch steps,
+plus optional center guides that never enter final JPEGs. Old saved jobs migrate
+once and recalibrate the common scale. This is a crop/framing policy, not an
+anatomical-waist landmark detector or per-athlete head-size normalization.
+
+New regression cases cover nested discovery/name preservation, watcher consistency,
+moderate confidence and cached strict-mode changes, uncertain hair windows, manual
+head-only recovery, default fallback, steady scaling anchors, independent position
+changes, clipped lower-body canaries and legacy-job migration. Actual Tk CI also
+runs automatic nested/color-fallback production with moderate detections and checks
+position controls and guide toggles. Source policy/types and photographic quality
+still need validation on the user's Mac; packaged preview/check results are in PR #4.

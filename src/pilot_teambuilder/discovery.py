@@ -16,3 +16,28 @@ def source_paths(folder: Path) -> list[Path]:
 
 def png_paths(folder: Path) -> list[Path]:
     return [p for p in source_paths(folder) if p.is_file() and p.suffix.lower() == ".png"]
+
+
+def team_folders(root: Path) -> list[Path]:
+    """Find real team leaves at any depth; never merge a container's teams."""
+    ignored = {"templates", "completed", "completed teams", "upload", "samples"}
+    wrappers = {"png", "pngs", "images", "photos", "extracted", "editedpng", "exports", "cutouts"}
+    found = []
+
+    def visit(folder):
+        children = sorted(folder.iterdir())
+        if any(p.is_file() and not is_system_entry(p.relative_to(root))
+               and p.suffix.lower() == ".png" for p in children):
+            team = folder
+            while team != root and team.name.casefold().replace(" ", "").replace("_", "") in wrappers:
+                team = team.parent
+            found.append(team)
+            return
+        for child in children:
+            if (child.is_dir() and not child.is_symlink()
+                    and not is_system_entry(child.relative_to(root))
+                    and child.name.casefold() not in ignored):
+                visit(child)
+
+    visit(root)
+    return sorted(set(found))

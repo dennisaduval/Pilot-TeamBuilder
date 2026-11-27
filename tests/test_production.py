@@ -302,6 +302,30 @@ class ProductionTests(unittest.TestCase):
         result = self.run_team()
         self.assertEqual(result["statuses"][str(self.folder)]["state"], "Completed")
 
+    def test_repaired_templates_resume_held_team_without_rebuild_or_approval(self):
+        foreground = self.templates / "Team Foreground_default.png"
+        foreground.unlink()
+        held = self.run_team()
+        self.assertEqual(held["statuses"][str(self.folder)]["state"], "Needs attention")
+        with Image.new("RGBA", (900, 300)) as image:
+            image.save(foreground)
+        resumed = self.engine.tick(held["job"], now=4)
+        self.assertEqual(resumed["statuses"][str(self.folder)]["state"], "Completed")
+
+    def test_corrected_capture_setting_resumes_held_team(self):
+        self.job["retained_capture"] = False
+        held = self.run_team()
+        held["job"]["retained_capture"] = True
+        resumed = self.engine.tick(held["job"], now=4)
+        self.assertEqual(resumed["statuses"][str(self.folder)]["state"], "Completed")
+
+    def test_unchanged_held_team_does_not_repeat_detection(self):
+        self.job["retained_capture"] = False
+        held = self.run_team()
+        with patch.object(self.engine.engine, "view", side_effect=AssertionError("Unnecessary repeat")):
+            repeated = self.engine.tick(held["job"], now=4)
+        self.assertEqual(repeated["statuses"][str(self.folder)]["state"], "Needs attention")
+
     def test_pause_before_work_has_no_side_effects(self):
         self.engine.tick(self.job, now=0)
         stop = Event()

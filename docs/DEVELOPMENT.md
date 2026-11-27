@@ -449,8 +449,8 @@ gray-on-orange ambiguity. Header and window title use actual package __version__
 Added a platform-wide version-display convention; Capture/PanoBuilder/HQ changes
 need their own repository builds and are not claimed as changed here.
 
-Initial local verification: 107 tests discovered, 103 pass, three graphical and one
-native-Mac test skipped. Twenty-four new production cases cover no-approval processing,
+Initial local verification: 110 tests discovered, 106 pass, three graphical and one
+native-Mac test skipped. Twenty-seven new production cases cover no-approval processing,
 empty/incremental folders, stability/ready markers, source changes during render,
 source preservation, colors/default overrides, common scale/enlargement, JPEG output,
 routing/deduplication/consumed printing, recovery, exceptions and validation. The new
@@ -482,3 +482,9 @@ Filename-color regression: use the appended suffix (before known processing
 markers), not arbitrary athlete-name tokens. Mary_Green_42_Orange_team selects
 Orange; Riley_White_42_team is uncolored. This prevents false mixed-color errors
 for athlete surnames and keeps color selection aligned with Pilot Capture output.
+
+Held-team recovery now fingerprints settings, corrections and template/CSV file
+versions. Fixing a missing template or the capture setting retries that held team
+automatically; unchanged failures stay held without repeating work. Completed
+receipts remain independent of setting changes to preserve duplicate-print safety.
+Regression cases cover repair/resume, setting correction/resume and unchanged holds.

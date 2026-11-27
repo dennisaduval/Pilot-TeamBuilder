@@ -88,6 +88,9 @@ ranking proxy, not a physical height measurement. Rendered athlete proportions
 remain unchanged and everyone shares the same capture scale. Changed canvas sizes,
 unknown resizing, missing/multiple/low-confidence faces and uncertain hair windows
 remain exceptions. Their provenance and errors are recorded; no source is omitted.
+Held teams retry automatically when their corrections, job settings or template
+files change. Unchanged errors do not repeat detection on every poll. Completed
+team deliveries remain protected from repeats.
 Manual head/height anchors, height ranks, exclusions, row/slot assignment and
 individual offsets remain available for recovery.
 

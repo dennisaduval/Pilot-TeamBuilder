@@ -12,6 +12,7 @@ from pathlib import Path
 from time import monotonic, time
 from uuid import uuid4
 
+from . import __version__
 from .desktop_engine import DesktopEngine
 from .discovery import is_system_entry, source_paths
 from .manifests import inventory
@@ -231,6 +232,25 @@ class ProductionEngine:
         self.hashes.move_to_end(version)
         return self.hashes[version]
 
+    def _configuration(self, job, team):
+        def version(path):
+            try:
+                return snapshot(path) if path.is_dir() else (path.stat().st_size, path.stat().st_mtime_ns, path.stat().st_ctime_ns)
+            except (OSError, ValueError):
+                return "unavailable"
+        template_root = Path(team.get("templates") or job["templates"])
+        files = {str(template_root): version(template_root)}
+        for key in ("background", "foreground", "row_csv"):
+            if job.get(key):
+                files[job[key]] = version(Path(job[key]))
+        return fingerprint({
+            "version": __version__, "files": files, "manifest": team["manifest"],
+            "rows": team.get("requested_rows"), "review_hashes": team.get("review_hashes"),
+            "settings": job.get("job_settings"), "scale": job.get("base_scale"),
+            "canvas": job.get("capture_canvas"), "retained": job.get("retained_capture", True),
+            "output": job["output"], "routes": job.get("routes", []),
+        })
+
     def tick(self, original, cancel=None, now=None):
         """Poll all folders, then process at most one stable team per invocation."""
         job = deepcopy(original)
@@ -255,6 +275,11 @@ class ProductionEngine:
             safe_name = re.sub(r"[^\w .-]+", "_", folder.name).strip(" .") or "Team"
             output = Path(job["output"]) / safe_name / f"{safe_name}_team_{key[:16]}.jpg"
             previous = self.db.execute("SELECT state,output,receipt,message FROM teams WHERE key=?", (key,)).fetchone()
+            if previous and previous[0] == "review":
+                reviewed = json.loads(previous[2]) if previous[2] else {}
+                if reviewed.get("configuration") != self._configuration(job, team):
+                    self._state(key, "interrupted", output, message="Job settings, corrections or templates changed; retrying.")
+                    previous = None
             if previous and previous[0] in {"completed", "review"}:
                 statuses[str(folder.resolve())] = {"state": "Completed" if previous[0] == "completed" else "Needs attention", "message": previous[3], "output": previous[1]}
                 if previous[0] == "completed":
@@ -343,7 +368,7 @@ class ProductionEngine:
                 statuses[str(folder.resolve())] = {"state": "Retry needed", "message": str(error)}
                 self._log("retry", team=folder.name, message=str(error))
             except (ValueError, RuntimeError) as error:
-                self._state(key, "review", output, message=str(error))
+                self._state(key, "review", output, receipt={"configuration": self._configuration(job, team)}, message=str(error))
                 statuses[str(folder.resolve())] = {"state": "Needs attention", "message": str(error)}
                 self._log("review", team=folder.name, message=str(error))
         if cancel and cancel.is_set():

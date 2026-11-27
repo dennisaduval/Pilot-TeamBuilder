@@ -121,6 +121,15 @@ class DesktopEngine:
             retained_capture=job.get("retained_capture", False),
             capture_canvas=job.get("capture_canvas"), fixed_scale=job.get("base_scale"),
         )
+        for record in result.report["athletes"]:
+            expected = team.get("review_hashes", {}).get(record["id"])
+            if expected and record.get("sha256") != expected:
+                record["issues"].append("Source changed after manual correction; review its head/height again.")
+                record["status"] = "review"
+                result.layout = None
+                result.report["layout"] = None
+                result.report["status"] = "review"
+                result.report["issues"].append("A corrected source changed; automatic processing is held.")
         if result.layout is not None:
             self._visibility(result)
         template_names = ""

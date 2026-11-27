@@ -56,6 +56,7 @@ class DesktopSmokeTests(unittest.TestCase):
 
         from pilot_teambuilder import __version__
         from pilot_teambuilder.app import TeamBuilderApp
+        from pilot_teambuilder.desktop_engine import DesktopEngine
         from pilot_teambuilder.production import ProductionEngine
         from pilot_teambuilder.review import new_job
         from pilot_teambuilder.synthetic import athletes, write_sources
@@ -89,7 +90,10 @@ class DesktopSmokeTests(unittest.TestCase):
                 self.assertIn(__version__, root.title())
                 self.assertEqual(len(app.main.panes()), 2)  # Correction pane hidden.
                 with patch("pilot_teambuilder.app.ProductionEngine",
-                           side_effect=lambda state: ProductionEngine(state, SyntheticDetector())):
+                           side_effect=lambda state: ProductionEngine(state, SyntheticDetector())), patch(
+                    "pilot_teambuilder.app.DesktopEngine",
+                    side_effect=lambda state: DesktopEngine(state, SyntheticDetector()),
+                ):
                     app.toggle_monitor()
                     write_sources(incoming / "Automatic Team", athletes(9))
                     wait_for(lambda: app.session.job["teams"] and app.session.team.get("production", {}).get("state") == "Completed")

@@ -323,4 +323,9 @@ class ProductionEngine:
                 self._state(key, "review", output, message=str(error))
                 statuses[str(folder.resolve())] = {"state": "Needs attention", "message": str(error)}
                 self._log("review", team=folder.name, message=str(error))
+        if cancel and cancel.is_set():
+            for team in job["teams"]:
+                source = str(Path(team["manifest"]["source_folder"]).resolve())
+                if statuses.get(source, {}).get("state") == "Queued" and team.get("production"):
+                    statuses[source] = deepcopy(team["production"])
         return {"job": job, "statuses": statuses}

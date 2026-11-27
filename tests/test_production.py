@@ -31,7 +31,7 @@ class ProductionTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
-        self.root = Path(self.temp.name)
+        self.root = Path(self.temp.name).resolve()
         self.incoming = self.root / "Incoming"
         self.incoming.mkdir()
         self.folder = self.incoming / "Team name_unchanged"
@@ -228,6 +228,34 @@ class ProductionTests(unittest.TestCase):
         self.job["routes"] = [str(self.incoming / "Printer")]
         with self.assertRaises(ValueError):
             validate_job(self.job, self.root)
+
+    def test_single_head_correction_reuses_automatic_ranks(self):
+        from pilot_teambuilder.app import TeamBuilderApp
+        app = TeamBuilderApp.__new__(TeamBuilderApp)
+        app.session = ReviewSession(self.job)
+        app.view = self.engine.engine.view(self.job, None)
+        try:
+            identity = app.session.manifest["athletes"][0]["id"]
+            box = app.view.analysis.report["athletes"][0]["head"]
+            app._correct_head(identity, [box[k] for k in ("left", "top", "right", "bottom")])
+            view = self.engine.engine.view(app.session.snapshot(), None)
+            try:
+                self.assertIsNotNone(view.analysis.layout)
+                self.assertTrue(all(e["capture"]["relative_height"] for e in app.session.manifest["athletes"]))
+            finally:
+                view.close()
+        finally:
+            app.view.close()
+
+    def test_changed_corrected_source_is_held_for_attention(self):
+        self.job["teams"][0]["review_hashes"] = {"athlete-0001": "stale-reviewed-hash"}
+        view = self.engine.engine.view(self.job, None)
+        try:
+            self.assertIsNone(view.analysis.layout)
+            self.assertTrue(view.draft)
+            self.assertIn("corrected source changed", " ".join(view.analysis.report["issues"]))
+        finally:
+            view.close()
 
     def test_pause_before_work_has_no_side_effects(self):
         self.engine.tick(self.job, now=0)

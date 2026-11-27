@@ -87,9 +87,8 @@ class TeamBuilderApp:
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.store = JobStore()
         self.session = None
-        self.worker = LatestWorker(
-            lambda: DesktopEngine(self.data_dir / "detections.sqlite3")
-        )
+        cache_path = self.data_dir / "detections.sqlite3"
+        self.worker = LatestWorker(lambda path=cache_path: DesktopEngine(path))
         self.token = 0
         self.view = None
         self.selected_id = None
@@ -590,6 +589,7 @@ class TeamBuilderApp:
             return
         digest = fingerprint(self.session.job)
         if digest == self.saved_fingerprint:
+            self.session.dirty = False
             return
         if self.store.path is None:
             path = self.data_dir / "Jobs" / (uuid4().hex + ".json")
@@ -733,7 +733,8 @@ class TeamBuilderApp:
             identity = fingerprint(str(Path(self.session.job["incoming"]).resolve()))[:24]
             if self.production_worker:
                 self.production_worker.close()
-            self.production_worker = LatestWorker(lambda: ProductionEngine(self.data_dir / "Production" / identity))
+            state_dir = self.data_dir / "Production" / identity
+            self.production_worker = LatestWorker(lambda path=state_dir: ProductionEngine(path))
             self.production_cancel = Event()
             self.monitoring = True
             self.monitor_caption.set("Pause automatic processing")
@@ -851,7 +852,7 @@ class TeamBuilderApp:
         )
 
     def _open_recent(self, event=None):
-        if self.exporting:
+        if self.exporting or self.production_busy:
             return
         index = self.job_box.current()
         if index >= 0 and self._discard():
@@ -943,6 +944,9 @@ class TeamBuilderApp:
             self.session.dirty = True
 
     def set_job(self, job):
+        if self.production_busy:
+            raise ValueError("Pause and finish the current team before changing jobs.")
+        self.saved_fingerprint = None
         self.stop_monitor()
         self._flush_live()
         self.token += 1
@@ -1068,6 +1072,7 @@ class TeamBuilderApp:
 
     def apply_rows(self):
         if self.session:
+            self._adopt_ranks()
             self.session.manual_rows(
                 tuple(int(v.strip()) for v in self.row_counts.get().split(","))
             )
@@ -1084,6 +1089,23 @@ class TeamBuilderApp:
             self.session.confirm_scale()
             self.request_view()
 
+    def _adopt_ranks(self):
+        if not self.session or not self.view:
+            return
+        versions = self.session.team.setdefault("review_hashes", {})
+        for record in self.view.analysis.report["athletes"]:
+            capture = record.get("capture", {})
+            if capture.get("relative_height") is not None:
+                entry = self.session.entry(record["id"])
+                if entry["capture"].get("relative_height") is None:
+                    entry["capture"].update(capture)
+                if record.get("sha256"):
+                    versions[record["id"]] = record["sha256"]
+
+    def _correct_head(self, identity, box):
+        self._adopt_ranks()
+        self.session.correct_head(identity, box)
+
     def confirm_head(self):
         if self.session and self.selected_id:
             record = self._record()
@@ -1092,7 +1114,7 @@ class TeamBuilderApp:
             )
             if box is None:
                 raise ValueError("Draw a head box on the athlete preview first.")
-            self.session.correct_head(self.selected_id, box)
+            self._correct_head(self.selected_id, box)
             self.request_view()
 
     def _rows(self):
@@ -1117,6 +1139,7 @@ class TeamBuilderApp:
         self.request_view()
 
     def rank(self, taller):
+        self._adopt_ranks()
         if not self.session or not self.selected_id:
             return
         self.session.rank(self.selected_id, taller)
@@ -1488,7 +1511,7 @@ class TeamBuilderApp:
         ):
             a, b = self.drag_start, end
             box = [min(a[0], b[0]), min(a[1], b[1]), max(a[0], b[0]), max(a[1], b[1])]
-            self._guard(lambda: self.session.correct_head(self.selected_id, box))()
+            self._guard(lambda: self._correct_head(self.selected_id, box))()
             self.request_view()
         self.drag_start = None
 
@@ -1593,6 +1616,9 @@ class TeamBuilderApp:
         self.worker.close()
         if self.view:
             self.view.close()
+        # Destroy UI objects only on the main thread and remove pending callbacks.
+        for callback in self.root.tk.splitlist(self.root.tk.call("after", "info")):
+            self.root.after_cancel(callback)
         self.root.destroy()
 
 

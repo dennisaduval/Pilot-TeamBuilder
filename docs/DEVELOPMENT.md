@@ -449,8 +449,8 @@ gray-on-orange ambiguity. Header and window title use actual package __version__
 Added a platform-wide version-display convention; Capture/PanoBuilder/HQ changes
 need their own repository builds and are not claimed as changed here.
 
-Initial local verification: 100 tests discovered, 96 pass, three graphical and one
-native-Mac test skipped. Seventeen new production cases cover no-approval processing,
+Initial local verification: 102 tests discovered, 98 pass, three graphical and one
+native-Mac test skipped. Nineteen new production cases cover no-approval processing,
 empty/incremental folders, stability/ready markers, source changes during render,
 source preservation, colors/default overrides, common scale/enlargement, JPEG output,
 routing/deduplication/consumed printing, recovery, exceptions and validation. The new
@@ -459,3 +459,14 @@ Xvfb in CI. This local host's Xorg cannot open a display transport, so local GUI
 execution is not claimed; native Mac bundling and GUI results are recorded in PR #4.
 Continue with private-photo Mac validation and operational error refinements before
 calling this event-ready. Follow docs/DESKTOP.md and VERSION_DISPLAY.md on handoff.
+
+
+TB-004 follow-up: canonicalized temporary paths in cross-platform tests, injected
+the synthetic detector into both GUI workers, and preserved completed status when
+pausing. Worker factories now capture only immutable paths rather than Tk-owning
+application objects, and close cancels outstanding Tk callbacks. Auto stature
+ranks can be adopted when an operator corrects one head or changes height order;
+those corrections bind to source hashes so changed sources are held. An unchanged
+autosave clears the dirty flag. Reopening/changing a job is blocked only while the
+current production task is finishing, preventing results from merging into another
+job. Final CI results and download links belong to PR #4.

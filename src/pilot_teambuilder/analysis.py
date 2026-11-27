@@ -65,7 +65,7 @@ def analyze_team(manifest: TeamManifest, table: RowTable, detector,
                 canvas = canvas or measured.size
                 if measured.size != canvas:
                     errors.append("Canvas differs from this job's fixed capture setup; verify cropping/resizing.")
-                elif measured.head is not None and len(measured.faces) == 1 and not errors:
+                elif measured.head is not None and len(measured.faces) == 1 and measured.faces[0].confidence >= 0.8:
                     face = measured.faces[0].box
                     # A COMMON capture-plane reference, not a per-image silhouette
                     # height. Face position ranks stature under the confirmed fixed

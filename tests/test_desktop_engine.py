@@ -5,7 +5,7 @@ from pathlib import Path
 from threading import Event
 from unittest.mock import patch
 
-from PIL import Image
+from PIL import Image, ImageDraw
 from test_review import review_job
 
 from pilot_teambuilder.desktop_engine import AssetCache, DesktopEngine, LatestWorker
@@ -65,6 +65,32 @@ class DesktopEngineTests(unittest.TestCase):
         restored = self.engine.view(session.job, None)
         self.addCleanup(restored.close)
         self.assertEqual(restored.analysis.layout.row_counts, original.analysis.layout.row_counts)
+
+    def test_print_canvas_and_mixed_template_pairs_work_in_preview_and_export(self):
+        for bg_width, fg_width in ((975, 900), (900, 975), (975, 975)):
+            with self.subTest(background=bg_width, foreground=fg_width):
+                with Image.new("RGB", (bg_width, 300), "#0B1F3A") as image:
+                    if bg_width > 900:
+                        ImageDraw.Draw(image).rectangle((900, 0, 974, 299), fill="magenta")
+                    image.save(self.bg, quality=100, subsampling=0)
+                with Image.new("RGBA", (fg_width, 300)) as image:
+                    if fg_width > 900:
+                        ImageDraw.Draw(image).rectangle((900, 0, 974, 299), fill="red")
+                    image.save(self.fg)
+                view = self.engine.view(self.job, None)
+                try:
+                    self.assertTrue(view.templates_ready, view.template_issue)
+                    self.assertEqual(view.panorama.size, (1560, 480))
+                    self.assertLess(view.panorama.getpixel((1410, 200))[0], 20)
+                    output = self.root / f"mixed-{bg_width}-{fg_width}.jpg"
+                    self.engine.export(self.job, view.review_signature, output)
+                    with Image.open(output) as image:
+                        self.assertEqual(image.size, (7800, 2400))
+                        self.assertEqual(image.info["dpi"], (300, 300))
+                        self.assertLess(image.getpixel((7050, 1000))[0], 30)
+                        self.assertEqual(image.crop((7200, 0, 7800, 2400)).getextrema()[0], (0, 255))
+                finally:
+                    view.close()
 
     def test_export_rejects_stale_template_review(self):
         view = self.engine.view(self.job, None)

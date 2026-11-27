@@ -4,7 +4,7 @@
 
 Repository: [dennisaduval/Pilot-TeamBuilder](https://github.com/dennisaduval/Pilot-TeamBuilder).
 
-Version **0.4.0.dev0**, milestones TB-001 through TB-004. Includes an initial
+Version **0.4.1.dev0**, milestones TB-001 through TB-004. Includes an initial
 desktop review application, composition engine, manifest preflight and offline
 detection. Hotfolder processing and verified delivery are implemented; production field validation remains outstanding.
 
@@ -125,8 +125,8 @@ Use `--rows /path/to/row_counts.csv` to select an external row table.
   placement within the default 22 × 6-inch area at (1, 0.75) inches.
 - Inch-based composition settings and explicit manual row/slot assignment,
   exclusions/restoration, and per-athlete inch offsets in the engine API.
-- Case-insensitive `_default` template discovery, duplicate detection, 3:1
-  validation, alpha validation, and two-layer decoded cache.
+- Case-insensitive `_default` template discovery, duplicate detection, 24 × 8 artwork / 26 × 8
+  print-template handling, alpha validation, and two-layer decoded cache.
 - Serial PNG compositing, rotated identification strip adapted from PanoBuilder,
   verified JPEG publication, source-bound checks, no overwrite, stage timing.
 - Conservative face-obstruction review flags and hard failures for missing,

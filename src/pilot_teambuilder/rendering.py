@@ -34,6 +34,28 @@ def discover_templates(root: Path) -> tuple[Path, Path]:
     return layers["background"], layers["foreground"]
 
 
+def template_artwork_box(size: tuple[int, int]) -> tuple[int, int, int, int]:
+    """Normalize the artwork region, preserving the right-hand print allowance.
+
+    Templates may describe either the 24 × 8 artwork or the 26 × 8 print sheet.
+    Small rounding differences from image exports are accepted; DPI metadata is
+    irrelevant to the aspect ratio. The rightmost 2/26 of a full sheet is never
+    stretched into the artwork. Identification is drawn separately by the app.
+    """
+    width, height = size
+    canvas = min((ART_SIZE, FINAL_SIZE), key=lambda ref: abs(width - height * ref[0] / ref[1]))
+    ratio = canvas[0] / canvas[1]
+    # Allow one source pixel of rounding in either dimension.
+    if abs(width - height * ratio) <= 1 + ratio:
+        right = width if canvas == ART_SIZE else round(width * ART_SIZE[0] / FINAL_SIZE[0])
+        return (0, 0, right, height)
+    raise ValueError(
+        f"Template is {width} × {height} px. Select landscape 24 × 8-inch artwork "
+        "or a 26 × 8-inch print template (for example 7200 × 2400 or 7800 × 2400 px). "
+        "The rightmost 2-inch strip is reserved for identification."
+    )
+
+
 class TemplateCache:
     """Two decoded artwork layers, owned by one rendering worker."""
 
@@ -47,21 +69,21 @@ class TemplateCache:
             self.layers.move_to_end(key)
             return self.layers[key]
         with Image.open(path) as opened, closing(ImageOps.exif_transpose(opened)) as oriented:
-            if oriented.width != oriented.height * 3:
-                raise ValueError(f"{path.name}: expected 3:1 landscape artwork.")
-            if foreground:
-                if opened.format != "PNG" or "A" not in oriented.getbands():
-                    raise ValueError("Foreground must be an alpha-channel PNG.")
-                with closing(oriented.getchannel("A")) as alpha:
-                    if alpha.getextrema()[0] == 255:
-                        raise ValueError("Foreground has no transparent pixels.")
-            elif opened.format != "JPEG":
-                raise ValueError("Background must be JPEG.")
-            converted = oriented.convert("RGBA")
-            try:
-                layer = converted.resize(size, Image.Resampling.LANCZOS)
-            finally:
-                converted.close()
+            artwork_box = template_artwork_box(oriented.size)
+            with closing(oriented.crop(artwork_box)) as artwork:
+                if foreground:
+                    if opened.format != "PNG" or "A" not in artwork.getbands():
+                        raise ValueError("Foreground must be an alpha-channel PNG.")
+                    with closing(artwork.getchannel("A")) as alpha:
+                        if alpha.getextrema()[0] == 255:
+                            raise ValueError("Foreground artwork has no transparent pixels.")
+                elif opened.format != "JPEG":
+                    raise ValueError("Background must be JPEG.")
+                converted = artwork.convert("RGBA")
+                try:
+                    layer = converted.resize(size, Image.Resampling.LANCZOS)
+                finally:
+                    converted.close()
         after = path.stat()
         if (stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns) != (after.st_size, after.st_mtime_ns, after.st_ctime_ns):
             layer.close()

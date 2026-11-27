@@ -1,4 +1,4 @@
-# TeamBuilder 0.4 — automatic team production
+# TeamBuilder 0.4.1 — automatic team production
 
 Pilot TeamBuilder is an offline hotfolder application. Set up a job once, start
 monitoring, and drop team folders into the incoming folder. Valid teams render
@@ -40,8 +40,17 @@ Team Foreground_Aqua.png
 
 Matching is case-insensitive. `_Default` and color/default combinations such as
 `Team Background_Orange_default.jpg` work. Backgrounds must be JPEG, foregrounds
-must have PNG transparency, and both must be 3:1 landscape artwork. Templates are
-validated before use and cached by file version.
+must have PNG transparency in the artwork. Each template can be either landscape
+24 × 8-inch artwork or a full 26 × 8-inch print sheet, at any matching resolution
+(e.g. 7200 × 2400 or 7800 × 2400 pixels). Background and foreground may use different
+supported canvas sizes. Minor pixel-rounding differences are accepted.
+
+For a full-print template, the LEFT 24 inches become the artwork; the rightmost
+2 inches are excluded from both design layers. The app adds its identification
+strip separately, so template content there cannot cover the team name or distort
+the artwork. No extra 24-inch JPEG is created. Final output remains 7800 × 2400 at
+300 PPI. Source templates remain unchanged. Templates are validated before use and
+cached by file version.
 
 Color selection reads the appended FILENAME color suffix, such as `_Orange`, `_Aqua`, `_Green`;
 a later `_team` token is allowed. Earlier athlete-name tokens (Green, White, etc.)

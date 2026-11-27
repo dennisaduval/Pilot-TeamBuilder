@@ -5,7 +5,7 @@ from pathlib import Path
 from threading import Event
 from unittest.mock import patch
 
-from PIL import Image
+from PIL import Image, ImageDraw
 
 from pilot_teambuilder.detection import Face
 from pilot_teambuilder.model import Rect
@@ -325,6 +325,21 @@ class ProductionTests(unittest.TestCase):
         with patch.object(self.engine.engine, "view", side_effect=AssertionError("Unnecessary repeat")):
             repeated = self.engine.tick(held["job"], now=4)
         self.assertEqual(repeated["statuses"][str(self.folder)]["state"], "Needs attention")
+
+    def test_full_print_templates_process_automatically_with_separate_team_strip(self):
+        with Image.new("RGB", (975, 300), "#0B1F3A") as image:
+            ImageDraw.Draw(image).rectangle((900, 0, 974, 299), fill="magenta")
+            image.save(self.templates / "Team Background_default.jpg", quality=100, subsampling=0)
+        with Image.new("RGBA", (975, 300)) as image:
+            ImageDraw.Draw(image).rectangle((900, 0, 974, 299), fill="red")
+            image.save(self.templates / "Team Foreground_default.png")
+        result = self.run_team()
+        status = result["statuses"][str(self.folder)]
+        self.assertEqual(status["state"], "Completed", status)
+        with Image.open(status["output"]) as image:
+            self.assertEqual(image.size, (7800, 2400))
+            self.assertLess(image.getpixel((7050, 1000))[0], 30)
+            self.assertEqual(image.crop((7200, 0, 7800, 2400)).getextrema()[0], (0, 255))
 
     def test_pause_before_work_has_no_side_effects(self):
         self.engine.tick(self.job, now=0)

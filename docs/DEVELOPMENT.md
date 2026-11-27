@@ -488,3 +488,28 @@ versions. Fixing a missing template or the capture setting retries that held tea
 automatically; unchanged failures stay held without repeating work. Completed
 receipts remain independent of setting changes to preserve duplicate-print safety.
 Regression cases cover repair/resume, setting correction/resume and unchanged holds.
+
+
+## 2026-11-27 — TB-004 / 0.4.1.dev0 — Artwork versus printer canvas
+
+User field report: the exact 3:1-only template validator blocked job setup. The
+customer product remains 24 × 8 inches, while the printer receives a 26 × 8-inch
+sheet containing a separate 2-inch identification allowance. Treating template
+canvas dimensions as identical to final artwork was too restrictive.
+
+The shared template loader now accepts either a 24 × 8 artwork canvas or a full
+26 × 8 print canvas at arbitrary matching resolution, with one-pixel export
+rounding tolerance in either dimension. Full-print templates use their LEFT 24/26
+width as artwork; the rightmost 2/26 is excluded before resizing/compositing. The
+app-generated identification strip remains separate. Background and foreground
+can independently use either supported size. The artwork never stretches to fill
+26 inches, and final output is still one 7800 × 2400 / 300-PPI JPEG. Source files
+remain untouched. Foreground transparency is validated within the actual artwork,
+so a transparent discard strip cannot mask an opaque design layer.
+
+Updated setup guidance, dimension errors, desktop guide and displayed version.
+Regression coverage includes both formats and mixed format pairs, cropped strip
+sentinels, rounding, preview/final consistency, full JPEG dimensions/identification
+and the automatic hotfolder flow with full-print templates. Tests and native Mac
+bundle results are recorded in PR #4 before handoff. This does not add strip logos
+or styling, which remain a future identification-layer enhancement.

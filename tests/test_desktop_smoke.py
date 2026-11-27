@@ -74,9 +74,9 @@ class DesktopSmokeTests(unittest.TestCase):
             job["settle_seconds"] = 0
             templates = Path(job["templates"])
             templates.mkdir(parents=True)
-            with Image.new("RGB", (900, 300), "navy") as image:
+            with Image.new("RGB", (975, 300), "navy") as image:
                 image.save(templates / "Team Background_default.jpg")
-            with Image.new("RGBA", (900, 300)) as image:
+            with Image.new("RGBA", (975, 300)) as image:
                 image.save(templates / "Team Foreground_default.png")
             job["routes"] = [str(folder / "Upload"), str(folder / "Samples")]
             root = tk.Tk()

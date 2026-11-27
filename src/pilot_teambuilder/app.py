@@ -654,7 +654,7 @@ class TeamBuilderApp:
                             feedback.set(str(error))
             ttk.Button(page, text="Choose…", command=browse).grid(row=index, column=2)
         feedback = tk.StringVar(dialog)
-        ttk.Label(page, text="Automatic naming: Team Background_default.jpg + Team Foreground_default.png\nColor pairs: Team Background_Orange.jpg + Team Foreground_Orange.png (case-insensitive).\nColor comes from player filenames (_Orange, _Aqua, _Green…), not the team folder.\nYou can select default files directly above, regardless of their names.", style="Sub.TLabel", wraplength=760).grid(row=9, column=0, columnspan=3, sticky="w", pady=12)
+        ttk.Label(page, text="Automatic naming: Team Background_default.jpg + Team Foreground_default.png\nColor pairs: Team Background_Orange.jpg + Team Foreground_Orange.png (case-insensitive).\nColor comes from player filenames (_Orange, _Aqua, _Green…), not the team folder.\nSelect default files directly above. Both 24 × 8 artwork and 26 × 8 print templates work.\nThe extra 2-inch identification strip is kept separate from the artwork.", style="Sub.TLabel", wraplength=760).grid(row=9, column=0, columnspan=3, sticky="w", pady=12)
         retained = tk.BooleanVar(dialog, job.get("retained_capture", True))
         marker = tk.BooleanVar(dialog, job.get("require_ready", False))
         quiet = tk.StringVar(dialog, str(job.get("settle_seconds", 20)))

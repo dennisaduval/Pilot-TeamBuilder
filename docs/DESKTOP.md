@@ -1,125 +1,144 @@
-# Desktop review — TB-003
+# TeamBuilder 0.4 — automatic team production
 
-The first TeamBuilder desktop is a local Tk application using the existing engine,
-not a web UI or a photograph-layout mock. It is a development review build; no
-production installer, Developer ID/notarization, hotfolder watcher or automatic routing is included.
+Pilot TeamBuilder is an offline hotfolder application. Set up a job once, start
+monitoring, and drop team folders into the incoming folder. Valid teams render
+and deliver automatically; only exceptions need an operator. Source PNGs are
+never changed, moved or deleted. This is a developer preview, not an event release.
 
-For a first look, click **Demo** in the desktop toolbar. It supplies synthetic
-athletes and templates so the preview/export tools can be tested without setup.
+## Start a job
 
-## Review a job
+1. **Choose hotfolder…** selects the incoming folder. It may be empty. Each direct
+   child folder is a team; a folder containing PNGs directly is also supported.
+   Folder names are used verbatim as the printed team names, including prefixes.
+2. **Job setup…** selects the template folder, optional explicit default background
+   and foreground, row CSV, completed-output location, and optional upload/sample
+   delivery folders. The bundled row CSV is the initial selection; another CSV can
+   be selected for this job. Settings and queue state save automatically.
+3. Confirm **Original canvas/scale retained; same fixed camera setup** only for
+   the matching capture workflow. Dennis confirmed this for the supplied sample
+   batch. It is a visible job setting and can be disabled for other sources.
+4. **Start automatic processing** watches for stable folders, analyzes all included
+   sources, checks layout/template quality and exports valid teams automatically.
+   **Pause** prevents new work; a team already publishing/delivering finishes safely.
 
-1. Click **Choose team folder…** and select a folder containing athlete PNGs,
-   or a parent folder containing teams. No JSON is required. Teams appear in the
-   left queue and source images appear immediately while analysis runs. Choosing
-   more folders adds teams to the current job; choosing the same source again
-   selects it and preserves corrections. Choosing a real folder from Demo starts
-   a real job with its own template/output locations. **New job…** starts a fresh
-   collection; **Open saved job…** restores a previously saved review.
-   **Import manifest…** is an advanced option for verified CLI measurements.
-2. The left queue lists teams and quantities. Choose **Templates** for the current
-   team's template folder; default filenames follow the existing `_default`
-   conventions. Choose **Output** for completed images. **Row CSV** optionally
-   selects an external authoritative distribution table.
-3. Use **Confirm original canvas & scale** only if the selected team shares the
-   fixed capture geometry and extraction preserved canvas and scale. This records
-   scale 1.0 for that team; another extraction scale must come from a reviewed
-   manifest. The initial desktop cannot recover arbitrary crop/resize metadata.
-4. Analyze the selected team. Native Mac detection runs off the UI thread; missing
-   or multiple faces remain review items. On other platforms, draw manual heads.
-5. Select an athlete. In **Athlete**, drag a **Head box** around hair/accessories.
-   Use **Height top** to mark the anatomical head top and **Feet** to mark floor
-   contact above the reflection. These two anchors establish relative height in
-   common capture coordinates; they do not resize the athlete independently.
-   Previously supplied verified relative-height values remain usable.
-6. The complete group appears when every included source passes preflight. Use
-   **Layout** beneath the panorama for live row-spacing, inverted-V, horizontal
-   spacing and group-scale sliders. Preview work is debounced and reuses cached
-   geometry. Athlete count reflects included source images; it is not a control
-   that silently drops athletes. **Requested rows → Auto** follows the CSV exactly.
-   An explicit requested count balances athletes across that many rows, assigning
-   any remainder backmost first; it never permits more than 16 per row.
-   **Advanced** holds offsets, placement boundaries and exact manual distributions.
-   Distances use inches, usually 1/8-inch steps; subtle V steps use finer increments
-   and row separation uses head units. Select the **Athletes** tab beneath the
-   panorama for source selection. The right **Athlete** tab retains visual corrections.
-7. Change row counts in back-to-front order; use **Move**, arrows, **Taller** or
-   **Shorter** for manual assignment. Click/drag an athlete's head in the panorama
-   to move it in 1/8-inch steps. Exclude/restore preserves its source geometry,
-   height anchors and offsets. Exclusion resets manual/requested rows to automatic CSV counts.
-8. Save the job to retain manual edits. The app prompts on closing with unsaved
-   changes, and refuses to overwrite job files changed by another writer.
-   **Save ▾ → Save a copy** retains your edits when the original job has an external
-   conflict. Both editing panels scroll to remain accessible on smaller laptops.
+The header displays the actual application package version. **Job ▾** holds saved
+jobs, Save a copy, Demo and deliberate Rebuild. There is no manifest-import action
+in the production screen. JSON is internal saved state; team lists come from folders.
 
-## Export
+## Templates and filename colors
 
-**Approve & export JPEG** is enabled only for a current successful source/layout
-preview with valid templates. Pending slider edits disable approval immediately;
-export waits for the updated preview rather than exporting a stale layout. Conservative face-overlap warnings require explicit
-review confirmation. Out-of-area placements block export and cannot be approved
-away. Source-level failures cannot be overridden into a partial team photograph.
+Either select the default files directly in Job setup (any names), or use:
 
-The worker rechecks manifest/layout/source hashes and template versions against
-the reviewed preview, then renders/verifies a 7800 × 2400 / 300-PPI JPEG.
-Numbered filenames refuse overwrites and intentionally allow a new version on
-another deliberate export. Source images stay unchanged. The job's export history
-records successful exports; save the job to retain it.
-
-During export the app defers editing actions and waits before closing. A file or
-network failure leaves a readable error and no false completed record. Filesystems
-without the renderer's required atomic hard-link publication fail explicitly.
-Retry/recovery, multi-destination delivery and print idempotency remain TB-004.
-
-## Implementation and validation
-
-- `review.py`: UI-independent job persistence and non-destructive commands.
-- `measurements.py`: bounded per-worker source/body/head geometry cache. Current
-  file version and detector identity invalidate measurements; final export hashes
-  the actual decoded bytes. No full-size PNGs remain in this measurement cache.
-- `desktop_engine.py`: one-worker analysis, bounded 64-MiB thumbnail cache,
-  1560 × 480 previews, template cache and reviewed-export signature.
-- `app.py`: Tk widgets only on the main thread, worker results polled with `after`,
-  stale preview results closed/discarded, and one pending replacement request.
-
-Layout-only edits reuse measured geometry and decoded small previews. Changing a
-manual head reuses source bounds; changed files invalidate caches. Cache rebuilds
-remain CPU/image-I/O work, so first analysis can take longer than later layout edits.
-
-Linux CI exercises the actual Tk window under Xvfb with synthetic images: open a
-job, display a team, change composition, save, deliberately export a full JPEG,
-and capture a synthetic screenshot as an artifact. Cross-platform tests cover the
-model, persistence, cache reuse, file-change preflight and native Mac helper.
-No private customer photography is sent to CI. Real image/head accuracy and native
-Mac desktop usability still need field validation before release.
-
-The interface follows the supplied VolumePilot guide's navy/royal/orange/sky/cloud/
-instrument palette, sparse orange actions and Inter-first typography with native
-fallbacks. This milestone uses text branding; a compact approved logo variant,
-native application icon, production packaging and final Mac accessibility review remain open.
-
-## Apple Silicon preview bundle
-
-macOS CI uses pinned PyInstaller 6.22.3 to build an arm64 `.app`, bundling the
-native detector, authoritative row CSV and desktop runtime. It checks the bundle's
-ad-hoc signature and launches the actual frozen binary with a hidden startup smoke
-test before producing a symlink/permission-preserving ZIP. The artifact contains
-that ZIP; extract the outer artifact download, then the inner ZIP to obtain the app.
-
-No Python or Xcode installation is required on the test Mac. This is not a
-production build; it targets Apple Silicon and macOS 13 or newer. Older macOS
-versions are blocked by the bundle's declared minimum to match the native helper.
-This is not a
-notarized production release and may require an explicit macOS security allowance.
-Private photography still needs local field validation. For reproducible builds
-on an Apple Silicon Mac with Python and Xcode tools:
-
-```sh
-python -m pip install -e . PyInstaller==6.22.3
-python scripts/build_macos_preview.py
+```text
+Team Background_default.jpg
+Team Foreground_default.png
+Team Background_Orange.jpg
+Team Foreground_Orange.png
+Team Background_Aqua.jpg
+Team Foreground_Aqua.png
 ```
 
-The builder intentionally fails on other architectures rather than mislabeling
-an Intel binary. Source installations use the repository helper; frozen apps use
-the helper inside the bundle. Demo assets persist under application support so
-a saved demo job does not break when the application closes.
+Matching is case-insensitive. `_Default` and color/default combinations such as
+`Team Background_Orange_default.jpg` work. Backgrounds must be JPEG, foregrounds
+must have PNG transparency, and both must be 3:1 landscape artwork. Templates are
+validated before use and cached by file version.
+
+Color selection reads athlete FILENAME tokens such as `_Orange`, `_Aqua`, `_Green`;
+a later `_team` token is allowed. A color in the team folder name has no authority.
+Every included file must agree. Mixed/missing identifiers, duplicate template roles
+or a missing color pair hold the team with an actionable explanation. A colored
+team never silently falls back to the uncolored default. Custom colors are discovered
+from the template catalog; common colors are recognized even when their pair is missing.
+The main screen shows the actual selected pair for the selected team.
+
+## Preview and job-wide layout
+
+The panorama is the main screen. The correction pane is hidden until **Fix a
+detection / placement…** or a source selection requests it. **Sources & issues**
+shows specific error text, not just a generic review flag. Reliable detections
+require no individual approval. A failed team displays every source in a labeled
+source overview instead of a blank preview; this is not a finished composite.
+
+The **Layout** sliders set job-wide row separation, inverted-V step, head spacing
+and athlete size (25–300%). Area/offset controls remain under Advanced. **Auto**
+follows the selected CSV exactly; requested/manual rows are explicit per-team
+exceptions. Layout edits reuse geometry and thumbnail caches. Pending edits
+invalidate export until the new preview is ready.
+
+The largest initially selected/present team establishes a common capture-to-output
+scale at 85% of its fitted size, leaving some enlargement room. Later teams use
+that SAME scale, including smaller teams. No per-athlete head normalization or
+per-team silent shrinking is applied. **Fit largest team** resets the shared
+reference using the largest team currently in the queue. A team that cannot fit
+at the chosen size is held; reduce job size or deliberately refit the reference.
+Values above 100% enlarge the calibrated reference, not the placement boundaries.
+
+Changes affect previews and queued work. Completed deliveries are not repeated
+when settings change. **Job → Rebuild selected team** deliberately creates a new
+version and may deliver/print again after monitoring starts. This is intentional,
+not an automatic retry of completed output.
+
+## Automatic measurements and exceptions
+
+Under confirmed fixed camera/original-canvas geometry, reliable single-face
+positions rank stature against a COMMON capture-plane reference. An anatomical
+top estimate from the face excludes hair from height ranking. This is a relative
+ranking proxy, not a physical height measurement. Rendered athlete proportions
+remain unchanged and everyone shares the same capture scale. Changed canvas sizes,
+unknown resizing, missing/multiple/low-confidence faces and uncertain hair windows
+remain exceptions. Their provenance and errors are recorded; no source is omitted.
+Manual head/height anchors, height ranks, exclusions, row/slot assignment and
+individual offsets remain available for recovery.
+
+Face coverage is checked against actual foreground-athlete alpha at reduced
+resolution around the face, replacing conservative full-body-box overlap warnings.
+This remains a sampled visibility check; photographic quality needs native-Mac
+validation with the private test photographs before production use.
+
+## Transfers, output, recovery and delivery
+
+The default settling interval is 20 seconds without ANY file-list/size/mtime/ctime
+change. Temporary transfer files block a team. Source versions/hashes are checked
+again during rendering and immediately before publication. A stability interval
+cannot prove that a copy paused longer than the interval has finished. For an
+unambiguous handoff, enable **Require team.ready**, and create that marker only
+after copying all files (or atomically rename a completed folder into Incoming).
+The quiet interval still applies after the marker arrives.
+
+One production worker renders at most one team per poll; a separate bounded
+preview worker keeps selection responsive. Geometry, small previews and source
+hashes are cached with file-version invalidation. Sources are decoded serially
+for full rendering. No network service or model download is used.
+
+A SQLite ledger records input identities, processing ownership, output receipts
+and per-destination publication. The master is one verified 7800 × 2400 JPEG at
+300 PPI; optional destinations receive byte-verified copies of that same file.
+Outputs use deterministic content-derived names, never overwrite existing files
+and never repeat completed deliveries. A printer consuming its file does not
+cause an automatic resend. Recovered interrupted masters are re-rendered to a
+separate candidate and compared before reuse. Missing/changed completed masters
+are held rather than automatically reprinted. Disconnected destinations retain
+verified masters and retry with a delay.
+
+An interrupted print publication can be ambiguous: if the published file is gone,
+it might already have printed. That case is held for operator resolution rather
+than risking duplicate printing. Network filesystems lacking atomic hard-link
+publication fail explicitly. There is no automatic source-folder archival in this
+increment; originals remain in Incoming. Keep completed and delivery folders
+outside Incoming. Structured logs and the durable ledger are under application
+support for the incoming job.
+
+## Validation and current limits
+
+Tests cover automatic no-approval composition, transfer settling/ready markers,
+late source changes, color matching/missing colors, shared scale, empty hotfolders,
+full JPEG dimensions/PPI, routing, consumed print files, duplicate prevention,
+interrupted output recovery and exception source previews. Native Apple Vision
+and the bundled arm64 app are checked in macOS CI; the real Tk UI is exercised
+under Xvfb in Linux CI. Private customer photography is never sent to CI.
+
+The Apple Silicon bundle targets macOS 13+. It is ad-hoc signed and unnotarized.
+Extract the GitHub artifact ZIP and its inner ZIP to obtain the app. No Python or
+Xcode installation is needed. This increment does not certify real-photo stature
+ranking, floor/reflection treatment, face visibility or production throughput.
+Arbitrary crop/resize calibration and automatic source archival remain future work.

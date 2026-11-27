@@ -10,16 +10,25 @@ from copy import deepcopy
 from dataclasses import asdict
 from pathlib import Path
 from queue import Empty
+from threading import Event
 from tkinter import filedialog, font, messagebox, ttk
 from uuid import uuid4
 
 from PIL import Image, ImageTk
 
+from . import __version__
 from .desktop_engine import DesktopEngine, LatestWorker
 from .model import PPI, CompositionSettings
+from .production import ProductionEngine
 from .review import (
-    JobStore, ReviewSession, add_image_folder, import_manifest, new_job,
-    requested_distribution, rows_from_layout,
+    JobStore,
+    ReviewSession,
+    fingerprint,
+    import_manifest,
+    new_job,
+    requested_distribution,
+    rows_from_layout,
+    validate_job,
 )
 
 NAVY, ROYAL, ORANGE, SKY, CLOUD, INSTRUMENT = (
@@ -85,6 +94,11 @@ class TeamBuilderApp:
         self.view = None
         self.selected_id = None
         self.exporting = False
+        self.monitoring = False
+        self.production_busy = False
+        self.production_worker = None
+        self.production_cancel = Event()
+        self.saved_fingerprint = None
         self.closed = False
         self.export_destination = None
         self.pending_close = False
@@ -117,15 +131,18 @@ class TeamBuilderApp:
         self.athlete_count = tk.StringVar(root, "0")
         self.requested_rows = tk.StringVar(root, "Auto")
         self.distribution = tk.StringVar(root, "—")
+        self.setup_summary = tk.StringVar(root, "1  Choose hotfolder   →   2  Job setup   →   3  Start automatic processing")
+        self.monitor_caption = tk.StringVar(root, "Start automatic processing")
         self._theme()
         self._build()
-        self.root.title("Pilot TeamBuilder · VolumePilot")
+        self.root.title(f"Pilot TeamBuilder {__version__} · VolumePilot")
         width = max(1240, min(1520, root.winfo_screenwidth() - 40))
         height = max(760, min(960, root.winfo_screenheight() - 80))
         self.root.geometry(f"{width}x{height}")
         self.root.minsize(1240, 760)
         self.root.protocol("WM_DELETE_WINDOW", self.close)
         self.root.after(80, self._drain)
+        self.root.after(200, self._production_poll)
         self._load_recent()
         if job:
             self.set_job(job)
@@ -153,7 +170,9 @@ class TeamBuilderApp:
         style.configure("Primary.TButton", background=ROYAL, foreground="white")
         style.map("Primary.TButton", background=[("active", "#134AAB")])
         style.configure("Export.TButton", background=ORANGE, foreground=NAVY)
-        style.map("Export.TButton", background=[("active", "#FB923C")])
+        style.map("Export.TButton",
+                  background=[("disabled", "#FED7AA"), ("active", "#FB923C")],
+                  foreground=[("disabled", NAVY), ("active", NAVY), ("!disabled", NAVY)])
         style.configure(
             "Treeview",
             rowheight=29,
@@ -179,7 +198,7 @@ class TeamBuilderApp:
             bar, text="PILOT", bg=NAVY, fg=ORANGE, font=(self.family, 18, "bold")
         ).pack(side="left")
         tk.Label(
-            bar, text="  /  TeamBuilder", bg=NAVY, fg="white", font=(self.family, 15)
+            bar, text=f"  /  TeamBuilder  {__version__}", bg=NAVY, fg="white", font=(self.family, 15)
         ).pack(side="left", padx=12)
         tk.Label(
             bar,
@@ -190,49 +209,30 @@ class TeamBuilderApp:
         ).pack(side="right")
         actions = ttk.Frame(self.root, padding=(16, 10))
         actions.pack(fill="x")
-        self.analyze_button = ttk.Button(
-            actions,
-            text="Analyze / recheck",
-            style="Primary.TButton",
-            command=lambda: self.request_view(True),
-        )
-        self.analyze_button.pack(side="right")
-        utilities = ttk.Frame(self.root, padding=(16, 0, 16, 8))
-        utilities.pack(fill="x")
-        ttk.Label(actions, text="Job").pack(side="left", padx=(0, 8))
-        self.job_box = ttk.Combobox(
-            actions, textvariable=self.recent, state="readonly", width=24
-        )
-        self.job_box.pack(side="left")
+        self.job_box = ttk.Combobox(actions, textvariable=self.recent, state="readonly", width=20)
+        self.job_box.pack(side="left", padx=(0, 8))
         self.job_box.bind("<<ComboboxSelected>>", self._open_recent)
-        for text_, command in (
-            ("Choose team folder…", self.choose_team_folder),
-            ("New job…", self.new),
-            ("Demo", self.demo),
-            ("Open saved job…", self.open),
-            ("Import manifest…", self.import_team),
-            ("Save", self.save),
-            ("Templates…", self.choose_templates),
-            ("Output…", self.choose_output),
-            ("Row CSV…", self.choose_rows),
-        ):
-            parent = actions if text_ in {"Choose team folder…", "Open saved job…", "Save"} else utilities
-            if text_ == "Save":
-                button = ttk.Menubutton(parent, text="Save ▾")
-                menu = tk.Menu(button, tearoff=False)
-                menu.add_command(label="Save", command=self._guard(self.save))
-                menu.add_command(
-                    label="Save a copy…", command=self._guard(lambda: self.save(True))
-                )
-                button.configure(menu=menu)
-            else:
-                button = ttk.Button(
-                    parent, text=text_, command=self._guard(command),
-                    style="Primary.TButton" if text_ == "Choose team folder…" else "TButton",
-                )
-            button.pack(side="left", padx=(7, 0))
+        ttk.Button(actions, text="Choose hotfolder…", style="Primary.TButton",
+                   command=self._guard(self.choose_team_folder)).pack(side="left", padx=4)
+        ttk.Button(actions, text="Job setup…", command=self._guard(self.job_setup)).pack(side="left", padx=4)
+        self.monitor_button = ttk.Button(actions, textvariable=self.monitor_caption,
+                                        style="Export.TButton", command=self.toggle_monitor)
+        self.monitor_button.pack(side="right", padx=(8, 0))
+        self.analyze_button = ttk.Button(actions, text="Refresh preview", command=lambda: self.request_view(True))
+        self.analyze_button.pack(side="right", padx=4)
+        menu_button = ttk.Menubutton(actions, text="Job ▾")
+        menu = tk.Menu(menu_button, tearoff=False)
+        for label, callback in (("New job…", self.new), ("Open saved job…", self.open),
+                                ("Save job", self.save), ("Save a copy…", lambda: self.save(True)),
+                                ("Demo", self.demo), ("Rebuild selected team", self.rebuild_selected)):
+            menu.add_command(label=label, command=self._guard(callback))
+        menu_button.configure(menu=menu)
+        menu_button.pack(side="right", padx=4)
+        ttk.Label(self.root, textvariable=self.setup_summary, style="Sub.TLabel",
+                  wraplength=1200).pack(fill="x", padx=20, pady=(0, 8))
         main = ttk.Panedwindow(self.root, orient="horizontal")
         main.pack(fill="both", expand=True, padx=16)
+        self.main = main
         queue = ttk.Frame(main, padding=(0, 8, 10, 0), width=210)
         main.add(queue, weight=0)
         ttk.Label(queue, text="TEAM QUEUE", font=(self.family, 10, "bold")).pack(
@@ -286,7 +286,7 @@ class TeamBuilderApp:
         layout_page = ttk.Frame(self.preview_tabs, padding=(10, 6))
         athlete_page = ttk.Frame(self.preview_tabs)
         self.preview_tabs.add(layout_page, text="Layout")
-        self.preview_tabs.add(athlete_page, text="Athletes")
+        self.preview_tabs.add(athlete_page, text="Sources & issues")
         self._layout_controls(layout_page)
         self.athletes = ttk.Treeview(
             athlete_page,
@@ -305,14 +305,13 @@ class TeamBuilderApp:
         self.athletes.pack(fill="both", expand=True)
         self.athletes.bind("<<TreeviewSelect>>", self.select_athlete)
         self.tabs = ttk.Notebook(main, width=300)
-        main.add(self.tabs, weight=0)
         self._composition_tab()
         self._athlete_tab()
         footer = ttk.Frame(self.root, padding=(16, 10))
         footer.pack(fill="x")
         self.export_button = ttk.Button(
             footer,
-            text="Approve & export JPEG",
+            text="Export selected team",
             style="Export.TButton",
             command=self.export,
             state="disabled",
@@ -372,7 +371,7 @@ class TeamBuilderApp:
             ("row_separation_heads", "Vertical row spacing", 0.5, 3.0, 0.125, " heads"),
             ("v_step_in", "Inverted-V step", 0.0, 0.25, 0.025, " in"),
             ("head_spacing_in", "Horizontal head spacing", 0.25, 2.0, 0.125, " in"),
-            ("group_scale", "Overall group scale", 25, 100, 1, "%"),
+            ("group_scale", "Job athlete size", 25, 300, 1, "%"),
         ):
             row = ttk.Frame(page)
             row.pack(fill="x", pady=3)
@@ -385,6 +384,11 @@ class TeamBuilderApp:
                 command=lambda value, k=key, s=step: self._live_change(k, value, s),
             )
             slider.pack(side="left", fill="x", expand=True, padx=10)
+        tools = ttk.Frame(page)
+        tools.pack(fill="x", pady=(8, 0))
+        ttk.Label(tools, text="Job-wide settings", style="Sub.TLabel").pack(side="left")
+        ttk.Button(tools, text="Fit largest team", command=self._guard(self.fit_largest)).pack(side="right", padx=5)
+        ttk.Button(tools, text="Fix a detection / placement…", command=self.show_review).pack(side="right")
         self._refresh_readouts()
 
     def _refresh_readouts(self):
@@ -395,7 +399,7 @@ class TeamBuilderApp:
                 readout.set("—")
 
     def _live_change(self, key, value, step):
-        if self.loading_form or self.exporting:
+        if self.loading_form or self.exporting or self.production_busy or self.monitoring:
             return
         self.values[key].set(f"{round(float(value) / step) * step:.3f}")
         self._refresh_readouts()
@@ -415,7 +419,7 @@ class TeamBuilderApp:
         return True
 
     def _sync_rows(self, counts=None):
-        if not self.session:
+        if not self.session or not self.session.job["teams"]:
             return
         active = sum(not e.get("excluded", False) for e in self.session.manifest["athletes"])
         self.athlete_count.set(str(active))
@@ -438,7 +442,7 @@ class TeamBuilderApp:
         self.distribution.set(" / ".join(map(str, counts)) if counts else "—")
 
     def apply_requested_rows(self, event=None):
-        if not self.session or self.exporting:
+        if not self.session or not self.session.job["teams"] or self.exporting or self.production_busy:
             return
         self._flush_live()
         value = self.requested_rows.get()
@@ -470,7 +474,7 @@ class TeamBuilderApp:
                 page,
                 textvariable=variable,
                 from_=-100,
-                to=100,
+                to=300 if key == "group_scale" else 100,
                 increment=step,
                 width=8,
                 command=self._guard(self.apply_settings),
@@ -555,9 +559,260 @@ class TeamBuilderApp:
             page, textvariable=self.athlete_status, wraplength=275, justify="left"
         ).pack(anchor="w", pady=10)
 
+    def fit_largest(self):
+        if not self.session or not self.session.job["teams"]:
+            return
+        self.stop_monitor()
+        job = self.session.job
+        job["base_scale"] = None
+        self.session.settings({"group_scale": 1.0})
+        self.session.select_team(max(range(len(job["teams"])), key=lambda i: len(job["teams"][i]["manifest"]["athletes"])))
+        self.teams.selection_set(str(job["selected_team"]))
+        self._load_team()
+        self._autosave()
+
+    def show_review(self):
+        if str(self.tabs) not in self.main.panes():
+            self.main.add(self.tabs, weight=0)
+        self.tabs.select(1)
+        self.preview_tabs.select(1)
+
+    def _update_setup_summary(self):
+        if not self.session:
+            return
+        job = self.session.job
+        templates = self.view.template_names if self.view else ""
+        rows = Path(job["row_csv"]).name if job.get("row_csv") else "Built-in team row CSV"
+        self.setup_summary.set(f"Incoming: {job['incoming']}  ·  {rows}\nTemplates: {templates or job['templates']}  ·  Settings apply to the whole job")
+
+    def _autosave(self):
+        if not self.session:
+            return
+        digest = fingerprint(self.session.job)
+        if digest == self.saved_fingerprint:
+            return
+        if self.store.path is None:
+            path = self.data_dir / "Jobs" / (uuid4().hex + ".json")
+            self.store.save(self.session.job, path)
+        else:
+            self.store.save(self.session.job)
+        self.saved_fingerprint = digest
+        self.session.dirty = False
+        self._remember()
+
+    def job_setup(self):
+        if not self.session:
+            self.choose_team_folder()
+        if not self.session:
+            return
+        self.stop_monitor()
+        self._flush_live()
+        job = self.session.job
+        dialog = tk.Toplevel(self.root)
+        dialog.title(f"TeamBuilder {__version__} · Job setup")
+        dialog.transient(self.root)
+        page = ttk.Frame(dialog, padding=20)
+        page.pack(fill="both", expand=True)
+        ttk.Label(page, text="Set up once. Process every team automatically.", style="Title.TLabel").grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 14))
+        variables = {}
+        fields = (
+            ("incoming", "Incoming hotfolder", False),
+            ("templates", "Templates folder", False),
+            ("background", "Default background JPG", True),
+            ("foreground", "Default foreground PNG", True),
+            ("row_csv", "Team row CSV (blank = built-in)", True),
+            ("output", "Completed panoramas", False),
+            ("upload", "Upload folder (optional)", False),
+            ("samples", "Sample-print folder (optional)", False),
+        )
+        routes = job.get("routes", [])
+        for index, (key, label, is_file) in enumerate(fields, 1):
+            default = (routes[0] if routes else "") if key == "upload" else ((routes[1] if len(routes) > 1 else "") if key == "samples" else job.get(key, ""))
+            variable = variables[key] = tk.StringVar(dialog, default)
+            ttk.Label(page, text=label).grid(row=index, column=0, sticky="w", pady=5)
+            ttk.Entry(page, textvariable=variable, width=56).grid(row=index, column=1, sticky="ew", padx=10)
+            def browse(k=key, file=is_file):
+                if file:
+                    types = [("CSV", "*.csv")] if k == "row_csv" else ([("JPEG", "*.jpg *.jpeg")] if k == "background" else [("PNG", "*.png")])
+                    chosen = filedialog.askopenfilename(parent=dialog, title="Select " + k.replace("_", " "), filetypes=types)
+                else:
+                    chosen = filedialog.askdirectory(parent=dialog, title="Select " + k.replace("_", " "))
+                if chosen:
+                    variables[k].set(chosen)
+                    if k == "templates":
+                        variables["background"].set("")
+                        variables["foreground"].set("")
+                        try:
+                            from .templates import catalog
+                            pair = catalog(Path(chosen)).get("default", {})
+                            for role in ("background", "foreground"):
+                                if role in pair:
+                                    variables[role].set(str(pair[role]))
+                        except (OSError, ValueError) as error:
+                            feedback.set(str(error))
+            ttk.Button(page, text="Choose…", command=browse).grid(row=index, column=2)
+        feedback = tk.StringVar(dialog)
+        ttk.Label(page, text="Automatic naming: Team Background_default.jpg + Team Foreground_default.png\nColor pairs: Team Background_Orange.jpg + Team Foreground_Orange.png (case-insensitive).\nColor comes from player filenames (_Orange, _Aqua, _Green…), not the team folder.\nYou can select default files directly above, regardless of their names.", style="Sub.TLabel", wraplength=760).grid(row=9, column=0, columnspan=3, sticky="w", pady=12)
+        retained = tk.BooleanVar(dialog, job.get("retained_capture", True))
+        marker = tk.BooleanVar(dialog, job.get("require_ready", False))
+        quiet = tk.StringVar(dialog, str(job.get("settle_seconds", 20)))
+        ttk.Checkbutton(page, text="Original canvas/scale retained; all athletes use the same fixed camera setup", variable=retained).grid(row=10, column=0, columnspan=3, sticky="w", pady=4)
+        ttk.Checkbutton(page, text="Require team.ready file after copying (strongest transfer protection)", variable=marker).grid(row=11, column=0, columnspan=3, sticky="w", pady=4)
+        ttk.Label(page, text="Wait after last folder change (seconds)").grid(row=12, column=0, sticky="w")
+        ttk.Spinbox(page, textvariable=quiet, from_=2, to=3600, increment=1, width=8).grid(row=12, column=1, sticky="w", padx=10)
+        ttk.Label(page, text="Athlete size, spacing and placement are shared across this job. A team that cannot fit is held for attention; it is never silently resized.", style="Sub.TLabel", wraplength=750).grid(row=13, column=0, columnspan=3, sticky="w", pady=8)
+        ttk.Label(page, textvariable=feedback, foreground="#92400E", wraplength=750).grid(row=14, column=0, columnspan=3, sticky="w")
+        def save_setup():
+            try:
+                candidate = deepcopy(job)
+                for key in ("incoming", "templates", "background", "foreground", "row_csv", "output"):
+                    candidate[key] = variables[key].get().strip()
+                if Path(candidate["incoming"]).resolve() != Path(job["incoming"]).resolve():
+                    raise ValueError("Choose a different hotfolder from the main screen to start another job.")
+                candidate["routes"] = list(dict.fromkeys(variables[k].get().strip() for k in ("upload", "samples") if variables[k].get().strip()))
+                candidate["retained_capture"] = retained.get()
+                candidate["require_ready"] = marker.get()
+                candidate["settle_seconds"] = float(quiet.get())
+                from .rows import RowTable
+                if candidate["row_csv"]:
+                    RowTable.load(Path(candidate["row_csv"]))
+                from .templates import catalog
+                if bool(candidate["background"]) != bool(candidate["foreground"]):
+                    raise ValueError("Select both default files, or leave both blank to use automatic discovery.")
+                if candidate["background"]:
+                    from .rendering import TemplateCache
+                    cache = TemplateCache()
+                    try:
+                        cache.load(Path(candidate["background"]), False, (900, 300))
+                        cache.load(Path(candidate["foreground"]), True, (900, 300))
+                    finally:
+                        cache.close()
+                else:
+                    pairs = catalog(Path(candidate["templates"]))
+                    if not any(set(pair) == {"background", "foreground"} for pair in pairs.values()):
+                        raise ValueError("No complete template pairs found. Select the default files above or use the naming examples.")
+                for team in candidate["teams"]:
+                    team["templates"] = ""
+                validate_job(candidate, Path.cwd())
+                self.session.job = candidate
+                self.session.touch()
+                self._autosave()
+                self._update_setup_summary()
+                dialog.destroy()
+                self.request_view()
+            except (ValueError, OSError) as error:
+                feedback.set(str(error))
+        buttons = ttk.Frame(page)
+        buttons.grid(row=15, column=0, columnspan=3, sticky="e", pady=(12, 0))
+        ttk.Button(buttons, text="Cancel", command=dialog.destroy).pack(side="left", padx=8)
+        ttk.Button(buttons, text="Save job setup", style="Primary.TButton", command=save_setup).pack(side="left")
+        page.columnconfigure(1, weight=1)
+        dialog.grab_set()
+
+    def stop_monitor(self):
+        self.monitoring = False
+        self.production_cancel.set()
+        self.monitor_caption.set("Start automatic processing")
+
+    def toggle_monitor(self):
+        if self.monitoring:
+            self.stop_monitor()
+            self.status.set("Paused. Finishing the current team." if self.production_busy else "Automatic processing paused.")
+            return
+        if not self.session:
+            self.status.set("Choose an incoming hotfolder, then open Job setup.")
+            return
+        if self.production_busy:
+            self.status.set("Finishing the current team before restarting.")
+            return
+        try:
+            validate_job(self.session.job, Path.cwd())
+            self._flush_live()
+            self._autosave()
+            # A worker is scoped to one incoming job and owns its durable ledger.
+            identity = fingerprint(str(Path(self.session.job["incoming"]).resolve()))[:24]
+            if self.production_worker:
+                self.production_worker.close()
+            self.production_worker = LatestWorker(lambda: ProductionEngine(self.data_dir / "Production" / identity))
+            self.production_cancel = Event()
+            self.monitoring = True
+            self.monitor_caption.set("Pause automatic processing")
+            self.status.set("Watching hotfolder. Stable teams will process and export automatically.")
+        except (OSError, ValueError) as error:
+            self.status.set(str(error))
+
+    def rebuild_selected(self):
+        if not self.session or not self.session.job["teams"]:
+            return
+        self.session.team["rebuild_nonce"] = self.session.team.get("rebuild_nonce", 0) + 1
+        self.session.team.pop("production", None)
+        self.session.touch()
+        self._autosave()
+        self.request_view(True)
+        self.status.set("Team queued for a deliberate new version. Start automatic processing to render and deliver it.")
+
+    def _production_poll(self):
+        if self.closed:
+            return
+        if self.production_worker:
+            try:
+                while True:
+                    _token, result, error = self.production_worker.results.get_nowait()
+                    self.production_busy = False
+                    if error:
+                        self.stop_monitor()
+                        self.status.set("Automatic processing paused: " + error)
+                    elif result and self.session:
+                        current = self.session.job
+                        selected_source = (self.session.manifest["source_folder"] if current["teams"] else None)
+                        old_selection = (deepcopy(self.session.manifest) if selected_source else None,
+                                         current.get("base_scale"), current.get("capture_canvas"))
+                        updated = result["job"]
+                        for i, team in enumerate(updated["teams"]):
+                            source = team["manifest"]["source_folder"]
+                            if source == selected_source:
+                                updated["selected_team"] = i
+                            team["production"] = result["statuses"].get(str(Path(source).resolve()), {})
+                            state = team["production"].get("state", "Queued")
+                            values = (len(team["manifest"]["athletes"]), state)
+                            if self.teams.exists(str(i)):
+                                self.teams.item(str(i), text=team["manifest"]["team_name"], values=values)
+                            else:
+                                self.teams.insert("", "end", iid=str(i), text=team["manifest"]["team_name"], values=values)
+                        self.session.job = updated
+                        self.session.touch()
+                        self._autosave()
+                        self._update_setup_summary()
+                        done = sum(t.get("production", {}).get("state") == "Completed" for t in updated["teams"])
+                        held = sum(t.get("production", {}).get("state") == "Needs attention" for t in updated["teams"])
+                        self.summary.set(f"{len(updated['teams'])} teams · {done} complete · {held} need attention")
+                        if updated["teams"]:
+                            self.teams.selection_set(str(updated["selected_team"]))
+                            selection = (self.session.manifest, updated.get("base_scale"), updated.get("capture_canvas"))
+                            if old_selection != selection or not self.view:
+                                self._load_team()
+                        if self.monitoring:
+                            self.status.set(f"Watching hotfolder · {done} complete · {held} need attention")
+                    if self.pending_close:
+                        self.pending_close = False
+                        self.close()
+                        return
+            except Empty:
+                pass
+            except (OSError, ValueError) as error:
+                self.stop_monitor()
+                self.status.set("Job could not be saved; automatic processing paused: " + str(error))
+        if self.monitoring and not self.production_busy and not self.exporting:
+            self.production_busy = True
+            snapshot = self.session.snapshot()
+            cancel = self.production_cancel
+            self.production_worker.submit(1, lambda engine: engine.tick(snapshot, cancel))
+        self.root.after(1000, self._production_poll)
+
     def _guard(self, callback):
         def guarded():
-            if self.exporting:
+            if self.exporting or self.production_busy:
+                self.status.set("Finishing the current team. Pause automatic processing before changing job settings.")
                 return
             try:
                 callback()
@@ -605,20 +860,25 @@ class TeamBuilderApp:
             )()
 
     def choose_team_folder(self):
-        path = filedialog.askdirectory(
-            title="Choose a team PNG folder or a parent folder containing teams",
-            parent=self.root,
-        )
+        path = filedialog.askdirectory(title="Choose incoming hotfolder (team folders go inside)", parent=self.root)
         if not path:
             return
         self._flush_live()
-        demo = bool(self.session and self.session.job.get("is_demo"))
-        current = self.session.job if self.session and not demo else None
-        job = add_image_folder(current, Path(path))
-        if current is None:
-            self.store = JobStore()
+        selected = Path(path).resolve()
+        same = self.session and not self.session.job.get("is_demo") and selected == Path(self.session.job["incoming"]).resolve()
+        if same:
+            self.request_view(True)
+            return
+        if self.session and self.session.dirty and not self._discard():
+            return
+        self.stop_monitor()
+        self.store = JobStore()
+        job = new_job(selected, allow_empty=True)
+        if job["teams"]:
+            job["selected_team"] = max(range(len(job["teams"])), key=lambda i: len(job["teams"][i]["manifest"]["athletes"]))
         self.set_job(job)
         self.session.dirty = True
+        self._autosave()
 
     def new(self):
         if not self._discard():
@@ -628,7 +888,7 @@ class TeamBuilderApp:
         )
         if path:
             self.store = JobStore()
-            self.set_job(new_job(Path(path)))
+            self.set_job(new_job(Path(path), allow_empty=True))
 
     def demo(self):
         if self._discard():
@@ -683,6 +943,7 @@ class TeamBuilderApp:
             self.session.dirty = True
 
     def set_job(self, job):
+        self.stop_monitor()
         self._flush_live()
         self.token += 1
         self.session = ReviewSession(job)
@@ -702,8 +963,15 @@ class TeamBuilderApp:
                     "Exported" if team["exports"] else "Not checked",
                 ),
             )
-        self.teams.selection_set(str(job["selected_team"]))
-        self._load_team()
+        self._update_setup_summary()
+        if job["teams"]:
+            self.teams.selection_set(str(job["selected_team"]))
+            self._load_team()
+        else:
+            self.title.set("Waiting for team folders")
+            self.athletes.delete(*self.athletes.get_children())
+            self.athlete_count.set("0")
+            self.distribution.set("—")
 
     def select_team(self, event=None):
         if self.exporting or not self.session:
@@ -717,10 +985,10 @@ class TeamBuilderApp:
             self._load_team()
 
     def _load_team(self):
+        if not self.session.job["teams"]:
+            return
         self.title.set(self.session.manifest["team_name"])
-        values = asdict(CompositionSettings()) | self.session.manifest.get(
-            "settings", {}
-        )
+        values = asdict(CompositionSettings()) | self.session.manifest.get("settings", {}) | self.session.job.get("job_settings", {})
         self.loading_form = True
         try:
             for key, var in self.values.items():
@@ -741,10 +1009,14 @@ class TeamBuilderApp:
         if not self.session:
             return
         path = filedialog.askdirectory(
-            parent=self.root, title="Choose this team's template folder"
+            parent=self.root, title="Choose job template folder"
         )
         if path:
-            self.session.team["templates"] = path
+            self.session.job["templates"] = path
+            self.session.job.pop("background", None)
+            self.session.job.pop("foreground", None)
+            for team in self.session.job["teams"]:
+                team["templates"] = ""
             preset = self.session.job["template_presets"].get(path)
             if preset:
                 self.session.manifest["settings"] = deepcopy(preset)
@@ -790,6 +1062,7 @@ class TeamBuilderApp:
                 for k, v in self.values.items()
             }
             self.session.settings(values)
+            self._autosave()
             self._refresh_readouts()
             self.request_view()
 
@@ -858,11 +1131,12 @@ class TeamBuilderApp:
         selected = self.athletes.selection()
         if not self.exporting and selected and selected[0] != self.selected_id:
             self.selected_id = selected[0]
+            self.show_review()
             self.tabs.select(1)
             self.request_view()
 
     def request_view(self, refresh=False):
-        if not self.session or self.exporting:
+        if not self.session or not self.session.job["teams"] or self.exporting:
             return
         self.token += 1
         token = self.token
@@ -937,6 +1211,15 @@ class TeamBuilderApp:
                     if self.view:
                         self.view.close()
                     self.view = value
+                    self._update_setup_summary()
+                    if value.analysis.layout and self.session.job.get("base_scale") is None and not self.session.job.get("is_demo") and not self.production_busy and not self.monitoring:
+                        factor = self.session.job.get("job_settings", {}).get("group_scale", 1.0)
+                        self.session.job["base_scale"] = value.analysis.layout.global_scale / factor * 0.85
+                        self.session.job["capture_canvas"] = value.analysis.report.get("capture_canvas")
+                        self.session.touch()
+                        self._autosave()
+                        self.request_view()
+                        continue
                     self._fill_lists()
                     self._draw_panorama()
                     self._draw_portrait()
@@ -973,7 +1256,7 @@ class TeamBuilderApp:
             label = (
                 "Excluded"
                 if r["status"] == "excluded"
-                else ("Needs review" if r["issues"] else "Ready")
+                else (r["issues"][0] if r["issues"] else "Automatic detection OK")
             )
             self.athletes.insert(
                 "",
@@ -991,9 +1274,9 @@ class TeamBuilderApp:
             str(self.session.job["selected_team"]),
             values=(
                 active,
-                "Review"
-                if report["issues"] or (self.view and not self.view.templates_ready)
-                else ("Exported" if self.session.team["exports"] else "Ready"),
+                self.session.team.get("production", {}).get("state") or (
+                    "Needs attention" if report["issues"] or (self.view and not self.view.templates_ready)
+                    else ("Exported" if self.session.team["exports"] else "Ready")),
             ),
         )
         exported = sum(bool(t["exports"]) for t in self.session.job["teams"])
@@ -1024,8 +1307,13 @@ class TeamBuilderApp:
         ]
         if self.view and not self.view.templates_ready:
             problems.insert(
-                0, "Template preview only — choose valid templates before export."
+                0, self.view.template_issue + " Open Job setup to fix templates."
             )
+        production = self.session.team.get("production", {})
+        if production.get("message"):
+            problems.insert(0, production["message"])
+        if self.view and self.view.draft:
+            problems.insert(0, "Showing all source images while detection issues are resolved. Use Sources & issues for the specific error.")
         self.details.set(
             "\n".join(problems[:2])
             + (
@@ -1042,13 +1330,14 @@ class TeamBuilderApp:
             if self.selected_id
             else None
         )
+        height = height or record.get("capture", {}).get("relative_height")
         state = [
             "Head: "
             + (
                 "confirmed"
                 if self.selected_id
                 and self.session.entry(self.selected_id).get("manual_head")
-                else "not confirmed"
+                else ("detected automatically" if record.get("head") else "needs attention")
             ),
             "Height top: " + ("set" if "height_top" in anchors else "not set"),
             "Feet: " + ("set" if "floor_y" in anchors else "not set"),
@@ -1087,6 +1376,8 @@ class TeamBuilderApp:
         with image.resize(size, Image.Resampling.LANCZOS) as resized:
             self.photos["panorama"] = ImageTk.PhotoImage(resized, master=self.root)
         self.canvas.create_image(x, y, anchor="nw", image=self.photos["panorama"])
+        if self.view.analysis.layout is None:
+            return
         scale = ratio * 0.2
         self.panorama_map = (x, y, scale)
         area = CompositionSettings(**self.session.manifest.get("settings", {})).area
@@ -1203,7 +1494,7 @@ class TeamBuilderApp:
 
     def _group_press(self, event):
         self.drag_start = None
-        if self.exporting or not self.panorama_map:
+        if self.exporting or self.production_busy or self.monitoring or not self.panorama_map:
             return
         x, y, scale = self.panorama_map
         px, py = (event.x - x) / scale, (event.y - y) / scale
@@ -1240,6 +1531,8 @@ class TeamBuilderApp:
             return
         if (
             self.exporting
+            or self.production_busy
+            or self.monitoring
             or not self.view
             or not self.view.analysis.layout
             or not self.view.templates_ready
@@ -1277,7 +1570,8 @@ class TeamBuilderApp:
         )
 
     def close(self):
-        if self.exporting:
+        if self.exporting or self.production_busy:
+            self.stop_monitor()
             self.pending_close = True
             self.status.set("Finishing the current export before closing…")
             return
@@ -1292,7 +1586,10 @@ class TeamBuilderApp:
                 self._guard(self.save)()
                 if self.session.dirty:
                     return
+        self.stop_monitor()
         self.closed = True
+        if self.production_worker:
+            self.production_worker.close()
         self.worker.close()
         if self.view:
             self.view.close()

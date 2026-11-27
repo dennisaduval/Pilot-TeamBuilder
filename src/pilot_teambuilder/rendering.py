@@ -1,19 +1,19 @@
 """Bounded template caching and serial full-resolution compositing."""
 
-from collections import OrderedDict
-from contextlib import closing
 import os
-from pathlib import Path
 import re
 import tempfile
+from collections import OrderedDict
+from contextlib import closing
+from pathlib import Path
 from time import perf_counter
 
 from PIL import Image, ImageOps
 
 from .identification import JobProfile, draw_right_footer
+from .measurements import MeasurementCache
 from .model import ART_SIZE, FINAL_SIZE, Layout
 from .sources import load_png
-from .measurements import MeasurementCache
 
 
 def discover_templates(root: Path) -> tuple[Path, Path]:
@@ -80,7 +80,7 @@ class TemplateCache:
 def render(layout: Layout, sources: dict[str, Path], background: Path, foreground: Path,
            team_name: str, destination: Path, cache: TemplateCache | None = None,
            font: str = "", expected_hashes: dict[str, str] | None = None,
-           expected_templates: dict[str, tuple] | None = None) -> dict:
+           expected_templates: dict[str, tuple] | None = None, before_publish=None) -> dict:
     """Render one draft/final artifact. Issues must block routing, not preview.
 
     Exclusive publication refuses overwrites. This milestone has no printer or
@@ -147,6 +147,8 @@ def render(layout: Layout, sources: dict[str, Path], background: Path, foregroun
         # Hard-link publication is atomic and refuses replacing an existing
         # file. Unsupported network filesystems fail explicitly for later retry.
         verify_templates()
+        if before_publish is not None:
+            before_publish()
         os.link(temporary, destination)
         timings["total_seconds"] = perf_counter() - start
         return {"size": FINAL_SIZE, "ppi": 300, "timings": timings,

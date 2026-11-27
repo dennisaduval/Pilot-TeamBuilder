@@ -35,7 +35,7 @@ class DesktopSmokeTests(unittest.TestCase):
                     picker.assert_called_once()
                     self.assertEqual(len(app.teams.get_children()), 1)
                     self.assertEqual(len(app.athletes.get_children()), 3)
-                    self.assertEqual(app.title.get(), "Real Team")
+                    self.assertEqual(app.title.get(), "001_Real Team")
                     identity = app.selected_id
                     app.session.offset(identity, 0.125, -0.25)
                     saved = app.session.snapshot()
@@ -47,6 +47,74 @@ class DesktopSmokeTests(unittest.TestCase):
                 if app.session:
                     app.session.dirty = False
                 app.close()
+
+    def test_z_automatic_hotfolder_main_screen(self):
+        import tkinter as tk
+
+        from PIL import Image, ImageGrab
+        from test_production import SyntheticDetector
+
+        from pilot_teambuilder import __version__
+        from pilot_teambuilder.app import TeamBuilderApp
+        from pilot_teambuilder.production import ProductionEngine
+        from pilot_teambuilder.review import new_job
+        from pilot_teambuilder.synthetic import athletes, write_sources
+
+        with tempfile.TemporaryDirectory() as temp:
+            folder = Path(temp)
+            incoming = folder / "Incoming"
+            incoming.mkdir()
+            job = new_job(incoming, allow_empty=True)
+            job["settle_seconds"] = 0
+            templates = Path(job["templates"])
+            templates.mkdir(parents=True)
+            with Image.new("RGB", (900, 300), "navy") as image:
+                image.save(templates / "Team Background_default.jpg")
+            with Image.new("RGBA", (900, 300)) as image:
+                image.save(templates / "Team Foreground_default.png")
+            job["routes"] = [str(folder / "Upload"), str(folder / "Samples")]
+            root = tk.Tk()
+            app = TeamBuilderApp(root, folder / "state", job)
+            failures = []
+            root.report_callback_exception = lambda *error: failures.append(error)
+            def wait_for(predicate):
+                deadline = time.monotonic() + 30
+                while not predicate():
+                    root.update()
+                    if time.monotonic() > deadline:
+                        self.fail("Automatic desktop timed out: " + app.status.get())
+                    time.sleep(0.01)
+                root.update_idletasks()
+            try:
+                self.assertIn(__version__, root.title())
+                self.assertEqual(len(app.main.panes()), 2)  # Correction pane hidden.
+                with patch("pilot_teambuilder.app.ProductionEngine",
+                           side_effect=lambda state: ProductionEngine(state, SyntheticDetector())):
+                    app.toggle_monitor()
+                    write_sources(incoming / "Automatic Team", athletes(9))
+                    wait_for(lambda: app.session.job["teams"] and app.session.team.get("production", {}).get("state") == "Completed")
+                    app.stop_monitor()
+                    wait_for(lambda: not app.production_busy)
+                    wait_for(lambda: app.view is not None and app.view.analysis.layout is not None)
+                self.assertFalse(app.view.draft)
+                self.assertEqual(len(app.view.analysis.layout.placements), 9)
+                self.assertEqual(len(list((folder / "Upload").glob("*.jpg"))), 1)
+                self.assertEqual(len(list((folder / "Samples").glob("*.jpg"))), 1)
+                self.assertFalse(failures, failures)
+                capture = os.environ.get("TEAMBUILDER_UI_CAPTURE")
+                if capture:
+                    with ImageGrab.grab(bbox=(root.winfo_rootx(), root.winfo_rooty(),
+                         root.winfo_rootx() + root.winfo_width(), root.winfo_rooty() + root.winfo_height())) as image:
+                        image.save(capture)
+            finally:
+                app.stop_monitor()
+                if app.production_busy:
+                    wait_for(lambda: not app.production_busy)
+                app.session.dirty = False
+                app.close()
+                if app.production_worker:
+                    app.production_worker.thread.join(3)
+                app.worker.thread.join(3)
 
     def test_saved_job_preview_correction_and_export_flow(self):
         import tkinter as tk
@@ -107,6 +175,7 @@ class DesktopSmokeTests(unittest.TestCase):
                     app.session.manifest["settings"]["head_spacing_in"], 0.875
                 )
                 # Exercise actual canvas gestures with source-coordinate mapping.
+                app.show_review()
                 app.tabs.select(1)
                 root.update()
 

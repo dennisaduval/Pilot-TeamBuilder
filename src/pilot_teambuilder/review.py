@@ -3,7 +3,6 @@
 import hashlib
 import json
 import os
-import re
 import tempfile
 from copy import deepcopy
 from pathlib import Path
@@ -21,7 +20,7 @@ def fingerprint(data) -> str:
     ).hexdigest()
 
 
-def new_job(incoming: Path, name: str | None = None) -> dict:
+def new_job(incoming: Path, name: str | None = None, *, allow_empty=False) -> dict:
     incoming = incoming.resolve(strict=True)
     folders = (
         [incoming]
@@ -41,25 +40,32 @@ def new_job(incoming: Path, name: str | None = None) -> dict:
             and png_paths(p)
         ]
     )
-    if not folders:
+    if not folders and not allow_empty:
         raise ValueError(
             "Choose a team folder or the incoming folder containing your team folders."
         )
     teams = []
     for folder in folders:
         manifest = inventory(folder)
-        manifest["team_name"] = re.sub(r"^\d+[_ -]+", "", folder.name)
+        manifest["team_name"] = folder.name
         teams.append(
             {"manifest": manifest, "anchors": {}, "templates": "", "exports": []}
         )
     return {
         "schema_version": 1,
+        "hotfolder_mode": True,
         "name": name or incoming.name,
         "incoming": str(incoming),
         "templates": str(incoming.parent / "Templates/Team"),
         "output": str(incoming.parent / "Completed Teams"),
         "row_csv": "",
         "template_presets": {},
+        "retained_capture": True,
+        "job_settings": {},
+        "base_scale": None,
+        "settle_seconds": 20,
+        "require_ready": False,
+        "routes": [],
         "teams": teams,
         "selected_team": 0,
     }
@@ -104,6 +110,8 @@ def add_image_folder(job: dict | None, folder: Path) -> dict:
         if any(t["manifest"]["team_id"] == team["manifest"]["team_id"] for t in result["teams"]):
             from uuid import uuid4
             team["manifest"]["team_id"] += ":" + uuid4().hex
+        if result.get("job_settings"):
+            team["manifest"]["settings"] = deepcopy(result["job_settings"])
         result["teams"].append(team)
         result["selected_team"] = len(result["teams"]) - 1
     validate_job(result, folder.parent)
@@ -131,7 +139,7 @@ def validate_job(job: dict, base_dir: Path):
         or type(job.get("schema_version")) is not int
         or job.get("schema_version") != 1
         or not isinstance(job.get("teams"), list)
-        or not job["teams"]
+        or (not job["teams"] and not job.get("hotfolder_mode"))
     ):
         raise ValueError("Unsupported or empty TeamBuilder job.")
     for key in ("name", "incoming", "templates", "output", "row_csv"):
@@ -155,10 +163,25 @@ def validate_job(job: dict, base_dir: Path):
             team.get("exports"), list
         ):
             raise ValueError("Invalid saved team review state.")
-    if type(job.get("selected_team")) is not int or not 0 <= job["selected_team"] < len(
-        job["teams"]
-    ):
+    if type(job.get("selected_team")) is not int or (job["teams"] and not 0 <= job["selected_team"] < len(job["teams"])):
         raise ValueError("Invalid selected team in job.")
+    from math import isfinite
+    if type(job.get("retained_capture", False)) is not bool:
+        raise ValueError("Fixed capture setting must be true or false.")
+    if type(job.get("settle_seconds", 20)) not in (int, float) or not 0 <= job.get("settle_seconds", 20) <= 3600:
+        raise ValueError("Copy settling time must be between 0 and 3600 seconds.")
+    if type(job.get("require_ready", False)) is not bool:
+        raise ValueError("Ready-marker setting must be true or false.")
+    scale = job.get("base_scale")
+    if scale is not None and (type(scale) not in (int, float) or not isfinite(scale) or scale <= 0):
+        raise ValueError("Invalid common job scale.")
+    CompositionSettings(**job.get("job_settings", {})).validate()
+    if not isinstance(job.get("routes", []), list) or any(not isinstance(p, str) or not p for p in job.get("routes", [])):
+        raise ValueError("Invalid delivery folders.")
+    source_roots = [Path(job["incoming"]).resolve()] + [Path(t["manifest"]["source_folder"]).resolve() for t in job["teams"]]
+    for target in [job["output"], *job.get("routes", [])]:
+        if any(Path(target).resolve().is_relative_to(source) for source in source_roots):
+            raise ValueError("Output/delivery folders must be outside incoming source folders.")
     fingerprint(job)  # Reject non-finite numbers before any write.
 
 
@@ -215,6 +238,8 @@ class ReviewSession:
 
     @property
     def team(self):
+        if not self.job["teams"]:
+            raise ValueError("Waiting for the first team folder.")
         return self.job["teams"][self.job["selected_team"]]
 
     @property
@@ -235,10 +260,12 @@ class ReviewSession:
         return next(e for e in self.manifest["athletes"] if e["id"] == identity)
 
     def settings(self, values: dict):
-        candidate = {**self.manifest.get("settings", {}), **values}
+        candidate = {**self.job.get("job_settings", {}), **values}
         CompositionSettings(**candidate).validate()
-        self.manifest["settings"] = candidate
-        template = self.team.get("templates") or self.job["templates"]
+        self.job["job_settings"] = deepcopy(candidate)
+        for team in self.job["teams"]:
+            team["manifest"]["settings"] = deepcopy(candidate)
+        template = (self.team.get("templates") if self.job["teams"] else None) or self.job["templates"]
         self.job["template_presets"][template] = deepcopy(candidate)
         self.touch()
 

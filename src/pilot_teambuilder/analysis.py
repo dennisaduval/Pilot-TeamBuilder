@@ -5,10 +5,10 @@ from pathlib import Path
 from time import perf_counter
 
 from .composition import compose
-from .discovery import source_paths
-from .measurements import MeasurementCache
 from .detection_cache import DetectionCache
+from .discovery import source_paths
 from .manifests import TeamManifest
+from .measurements import MeasurementCache
 from .model import Athlete, Layout
 from .rows import RowTable
 
@@ -23,12 +23,14 @@ class TeamAnalysis:
 
 def analyze_team(manifest: TeamManifest, table: RowTable, detector,
                  cache: DetectionCache, refresh: bool = False,
-                 measurements: MeasurementCache | None = None) -> TeamAnalysis:
+                 measurements: MeasurementCache | None = None, *, retained_capture=False,
+                 capture_canvas=None, fixed_scale=None) -> TeamAnalysis:
     started = perf_counter()
     issues = []
     records, people, sources, hashes = [], [], {}, {}
     measurements = measurements or MeasurementCache()
     cache_hits = 0
+    canvas = tuple(capture_canvas) if capture_canvas else None
     detection_seconds = 0.0
     declared = {e.path.resolve() for e in manifest.entries}
     all_paths = source_paths(manifest.source_folder)
@@ -50,8 +52,6 @@ def analyze_team(manifest: TeamManifest, table: RowTable, detector,
             record["exclusion_reason"] = e.exclusion_reason
             continue
         errors = record["issues"]
-        if e.source_scale is None or e.relative_height is None or not e.geometry_id or not e.provenance:
-            errors.append("Capture scale, relative height, geometry ID and provenance require confirmation.")
         try:
             tick = perf_counter()
             measured = measurements.measure(e, detector, cache, refresh)
@@ -61,6 +61,23 @@ def analyze_team(manifest: TeamManifest, table: RowTable, detector,
                           faces=[asdict(f) for f in measured.faces], cache_hit=measured.cache_hit)
             cache_hits += int(measured.cache_hit)
             errors.extend(measured.issues)
+            if retained_capture and e.relative_height is None:
+                canvas = canvas or measured.size
+                if measured.size != canvas:
+                    errors.append("Canvas differs from this job's fixed capture setup; verify cropping/resizing.")
+                elif measured.head is not None and len(measured.faces) == 1 and not errors:
+                    face = measured.faces[0].box
+                    # A COMMON capture-plane reference, not a per-image silhouette
+                    # height. Face position ranks stature under the confirmed fixed
+                    # camera/canvas geometry. Hair never determines height ranking.
+                    top = max(0, face.top - 0.35 * face.height)
+                    e = replace(e, source_scale=1.0, relative_height=canvas[1] - top,
+                                geometry_id="job-fixed-capture",
+                                provenance="Job confirms unchanged canvas/scale and fixed camera. Height ranking proxy from anatomical face position; not a physical height measurement.")
+            record["capture"] = {"geometry_id": e.geometry_id, "source_scale": e.source_scale,
+                                 "relative_height": e.relative_height, "provenance": e.provenance}
+            if e.source_scale is None or e.relative_height is None or not e.geometry_id or not e.provenance:
+                errors.append("Height ranking needs confirmation. Check the fixed-capture job setting or correct this athlete's head/height.")
             if measured.sha256 in seen_hashes:
                 errors.append("Duplicate image content also used by " + seen_hashes[measured.sha256] + ".")
             seen_hashes[measured.sha256] = e.id
@@ -86,7 +103,7 @@ def analyze_team(manifest: TeamManifest, table: RowTable, detector,
             excluded_ids = set(manifest.corrections.excluded)
             corrections = replace(manifest.corrections, excluded=(), offsets_in={
                 key: value for key, value in manifest.corrections.offsets_in.items() if key not in excluded_ids})
-            layout = compose(people, table, manifest.settings, corrections)
+            layout = compose(people, table, manifest.settings, corrections, fixed_scale=fixed_scale)
             issues.extend(layout.issues)
         except ValueError as error:
             issues.append(str(error))
@@ -95,5 +112,5 @@ def analyze_team(manifest: TeamManifest, table: RowTable, detector,
               "settings": asdict(manifest.settings), "corrections": asdict(manifest.corrections),
               "layout": asdict(layout) if layout else None,
               "timings": {"source_measurement_seconds": detection_seconds,
-                          "total_seconds": perf_counter() - started}, "cache_hits": cache_hits}
+                          "total_seconds": perf_counter() - started}, "cache_hits": cache_hits, "capture_canvas": canvas}
     return TeamAnalysis(report, layout, sources, hashes)

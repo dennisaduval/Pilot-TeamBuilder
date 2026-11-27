@@ -75,8 +75,8 @@ class CompositionSettings:
             raise ValueError("Composition settings must be finite.")
         if min(self.width_in, self.height_in, self.head_spacing_in, self.row_separation_heads) <= 0:
             raise ValueError("Placement dimensions and spacing must be positive.")
-        if not 0 < self.group_scale <= 1 or min(self.v_step_in, self.v_max_drop_in) < 0:
-            raise ValueError("Group scale must be in (0,1]; inverted-V values cannot be negative.")
+        if not 0 < self.group_scale <= 3 or min(self.v_step_in, self.v_max_drop_in) < 0:
+            raise ValueError("Group scale must be in (0,3]; inverted-V values cannot be negative.")
         if not Rect(0, 0, *ART_SIZE).contains(self.area):
             raise ValueError("Athlete placement area must be inside the 24 × 8 artwork.")
 

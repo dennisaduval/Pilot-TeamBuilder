@@ -3,8 +3,16 @@
 from math import isfinite
 from statistics import median
 
-from .model import (Athlete, CompositionSettings, Corrections, Layout, PPI,
-                    Placement, Rect, ReviewRequired)
+from .model import (
+    PPI,
+    Athlete,
+    CompositionSettings,
+    Corrections,
+    Layout,
+    Placement,
+    Rect,
+    ReviewRequired,
+)
 from .rows import RowTable, validate_rows
 
 
@@ -21,7 +29,7 @@ def transform(box: Rect, scale: float, x: float, y: float) -> Rect:
 
 def compose(athletes: list[Athlete], table: RowTable,
             settings: CompositionSettings = CompositionSettings(),
-            corrections: Corrections = Corrections()) -> Layout:
+            corrections: Corrections = Corrections(), *, fixed_scale: float | None = None) -> Layout:
     settings.validate()
     ids = [a.id for a in athletes]
     if len(set(ids)) != len(ids) or any(not i for i in ids):
@@ -101,8 +109,10 @@ def compose(athletes: list[Athlete], table: RowTable,
     available_h = area.height - 2 * abs(settings.y_offset_in * PPI)
     if min(available_w, available_h) <= 0:
         raise ValueError("Group offset leaves no placement space.")
-    global_scale = min(natural_scale, available_w / (right - left),
-                       available_h / (bottom - top)) * settings.group_scale
+    if fixed_scale is not None and (not isfinite(fixed_scale) or fixed_scale <= 0):
+        raise ValueError("Job scale must be finite and positive.")
+    fitted = min(natural_scale, available_w / (right - left), available_h / (bottom - top))
+    global_scale = (fixed_scale if fixed_scale is not None else fitted) * settings.group_scale
     origin_x = area.center_x + settings.x_offset_in * PPI - (left + right) / 2 * global_scale
     origin_y = (area.top + area.bottom) / 2 + settings.y_offset_in * PPI - (top + bottom) / 2 * global_scale
     placements = []

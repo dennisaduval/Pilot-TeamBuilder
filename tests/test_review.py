@@ -6,10 +6,10 @@ from pathlib import Path
 from pilot_teambuilder.review import (
     JobStore,
     ReviewSession,
-    import_manifest,
     add_image_folder,
-    requested_distribution,
+    import_manifest,
     new_job,
+    requested_distribution,
     validate_job,
 )
 from pilot_teambuilder.synthetic import athletes, write_sources
@@ -79,7 +79,7 @@ class ReviewTests(unittest.TestCase):
         self.assertEqual(len(selected["teams"]), 1)
         self.assertEqual(selected["teams"][0], session.team)
         self.assertEqual(selected["selected_team"], 0)
-        self.assertEqual(add_image_folder(None, source)["teams"][0]["manifest"]["team_name"], "Team")
+        self.assertEqual(add_image_folder(None, source)["teams"][0]["manifest"]["team_name"], "001_Team")
 
     def test_folder_collection_adds_and_selects_teams_without_replacing_settings(self):
         write_sources(self.folder / "Other/002_New Team", athletes(2))

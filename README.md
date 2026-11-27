@@ -4,53 +4,36 @@
 
 Repository: [dennisaduval/Pilot-TeamBuilder](https://github.com/dennisaduval/Pilot-TeamBuilder).
 
-Version **0.3.1.dev0**, milestones TB-001 through TB-003. Includes an initial
+Version **0.4.0.dev0**, milestones TB-001 through TB-004. Includes an initial
 desktop review application, composition engine, manifest preflight and offline
-detection. Production watching/routing and packaged field releases remain in development.
+detection. Hotfolder processing and verified delivery are implemented; production field validation remains outstanding.
 
-## Desktop review
+## Automatic production desktop
 
-After installing the editable package, launch:
+**Choose hotfolder → Job setup → Start automatic processing.** Team folders are
+team names; reliable teams render and deliver automatically without per-athlete
+approval. Saved job-wide settings include templates, color variants, the selected
+row CSV, common athlete size (up to 300%), placement and delivery locations.
+The visible header/window version identifies the actual installed build.
 
-```sh
-pilot-teambuilder-desktop
-pilot-teambuilder-desktop --demo
-pilot-teambuilder-desktop --job /path/to/saved-job.json
-```
+Under the confirmed fixed-camera/original-canvas workflow, face positions provide
+relative stature ranking while athletes retain one common capture scale. Missing,
+multiple or uncertain detections and color/template errors are exceptions. The
+large preview shows composites for valid teams and a labeled source overview for
+held teams. Recovery controls are available on demand.
 
-Tk/Tcl is required (normally supplied with the desktop Python distribution;
-Linux users may need their distribution's tkinter package). On a Mac, build the
-native face helper with `python scripts/build_face_helper.py` before automatic
-detection. The synthetic demo works on every supported platform without it.
-The packaged desktop also has a **Demo** toolbar button for testing without commands.
+The watcher waits for stable folders, supports an explicit team.ready marker,
+checks sources before publication, tracks processing/delivery in SQLite, prevents
+duplicate output/printing and resumes interrupted work. One 7800 × 2400 / 300-PPI
+JPEG is rendered and verified, then copied to configured destinations. Sources
+remain untouched in Incoming; automatic source archival is not yet implemented.
 
-The desktop includes a team queue, large panoramic preview, athlete list,
-inch-based composition controls, and a portrait editor for head boxes and
-anatomical head/foot anchors. Reviewers can change height order, row counts,
-row/slot assignments, exclusions and individual placement without changing PNGs.
-Saved jobs retain manual corrections, source calibration, template presets and
-export history. Current source preflight and conservative visibility checks still
-apply; physical-height recovery is not automatic in this milestone.
-
-Use **Choose team folder…** to select athlete PNGs or the parent of several team
-folders; no JSON is required. **Open saved job…** restores saved corrections.
-**Import manifest…** is the advanced option for a verified CLI manifest.
-The **Layout** tab beneath the large panorama has live row-spacing, inverted-V,
-horizontal-spacing and group-size sliders, plus requested rows and a distribution
-readout. **Auto** follows the supplied CSV; explicit requested rows preserve every
-included athlete while enforcing 16 per row. **Advanced** retains exact inch fields
-and manual row distributions.
-Choose templates and a completed-image folder, confirm unchanged capture scale
-only when verified, analyze, and correct review items. **Approve & export JPEG**
-creates a new numbered 26 × 8-inch JPEG after rechecking the reviewed sources and
-templates. It never sends files to a printer or upload service. Save the job to
-retain edits. See [desktop guide](docs/DESKTOP.md).
-
-Mac CI also builds an Apple Silicon `.app` preview, including Python/Tk, the row
-table and the native detector. It verifies the bundle and performs a startup smoke
-test before uploading the ZIP as a workflow artifact. No Python/Xcode installation
-is needed to run that preview. It has an ad-hoc signature, not a Developer ID or
-Apple notarization; it is a development build for testing, not an event release.
+After installing the editable package, use `pilot-teambuilder-desktop` or
+`pilot-teambuilder-desktop --demo`. Apple Silicon CI builds a self-contained app
+including the native offline detector; no Python or Xcode is needed on the test
+Mac. The app is ad-hoc signed, unnotarized and still requires real-photo/event
+validation. See the [desktop guide](docs/DESKTOP.md) for templates, color naming,
+scale, transfer handoff and print-recovery behavior.
 
 ## Run and test
 

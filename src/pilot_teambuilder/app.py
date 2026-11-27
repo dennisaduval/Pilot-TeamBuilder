@@ -799,13 +799,15 @@ class TeamBuilderApp:
                         self._autosave()
                         self._update_setup_summary()
                         done = sum(t.get("production", {}).get("state") == "Completed" for t in updated["teams"])
-                        held = sum(t.get("production", {}).get("state") == "Needs attention" for t in updated["teams"])
+                        held = sum(t.get("production", {}).get("state") in {"Needs attention", "Retry needed", "Retry pending"} for t in updated["teams"])
                         self.summary.set(f"{len(updated['teams'])} teams · {done} complete · {held} need attention")
                         if updated["teams"]:
                             self.teams.selection_set(str(updated["selected_team"]))
                             selection = (self.session.manifest, updated.get("base_scale"), updated.get("capture_canvas"))
                             if old_selection != selection or not self.view:
                                 self._load_team()
+                        if updated["teams"] and self.session.team.get("production", {}).get("message"):
+                            self.details.set(self.session.team["production"]["message"])
                         if self.monitoring:
                             self.status.set(f"Watching hotfolder · {done} complete · {held} need attention")
                     if self.pending_close:

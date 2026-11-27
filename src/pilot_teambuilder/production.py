@@ -22,6 +22,35 @@ class SourceNotSettled(ValueError):
     pass
 
 
+def process_alive(pid):
+    if os.name == "nt":
+        # Windows os.kill(pid, 0) is not a portable liveness probe. Query only.
+        import ctypes
+        from ctypes import wintypes
+        kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel.OpenProcess.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
+        kernel.OpenProcess.restype = wintypes.HANDLE
+        kernel.GetExitCodeProcess.argtypes = (wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD))
+        kernel.GetExitCodeProcess.restype = wintypes.BOOL
+        kernel.CloseHandle.argtypes = (wintypes.HANDLE,)
+        kernel.CloseHandle.restype = wintypes.BOOL
+        handle = kernel.OpenProcess(0x1000, False, pid)
+        if not handle:
+            return ctypes.get_last_error() != 87  # Invalid PID is dead; access failures hold.
+        try:
+            code = wintypes.DWORD()
+            return not kernel.GetExitCodeProcess(handle, ctypes.byref(code)) or code.value == 259
+        finally:
+            kernel.CloseHandle(handle)
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except (PermissionError, OSError):
+        return True
+
+
 def file_hash(path):
     digest = hashlib.sha256()
     with Path(path).open("rb") as handle:
@@ -139,15 +168,9 @@ class ProductionEngine:
         self.db.execute("BEGIN IMMEDIATE")
         row = self.db.execute("SELECT state,output,receipt,message,owner,pid FROM teams WHERE key=?", (key,)).fetchone()
         if row and row[0] == "processing" and row[4] != self.owner:
-            try:
-                os.kill(row[5], 0)
+            if process_alive(row[5]):
                 self.db.rollback()
                 return ("busy", row[1], None, "Another running app is processing this team.")
-            except ProcessLookupError:
-                pass
-            except (PermissionError, OSError):
-                self.db.rollback()
-                return ("busy", row[1], None, "Processing ownership requires attention.")
         if not row:
             if output.exists():
                 self.db.rollback()

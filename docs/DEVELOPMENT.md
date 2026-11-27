@@ -449,8 +449,8 @@ gray-on-orange ambiguity. Header and window title use actual package __version__
 Added a platform-wide version-display convention; Capture/PanoBuilder/HQ changes
 need their own repository builds and are not claimed as changed here.
 
-Initial local verification: 102 tests discovered, 98 pass, three graphical and one
-native-Mac test skipped. Nineteen new production cases cover no-approval processing,
+Initial local verification: 105 tests discovered, 101 pass, three graphical and one
+native-Mac test skipped. Twenty-two new production cases cover no-approval processing,
 empty/incremental folders, stability/ready markers, source changes during render,
 source preservation, colors/default overrides, common scale/enlargement, JPEG output,
 routing/deduplication/consumed printing, recovery, exceptions and validation. The new

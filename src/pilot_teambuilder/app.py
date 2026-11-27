@@ -127,6 +127,7 @@ class TeamBuilderApp:
         self.loading_form = False
         self.live_timer = None
         self.live_readouts = {}
+        self.layout_sliders = {}
         self.athlete_count = tk.StringVar(root, "0")
         self.requested_rows = tk.StringVar(root, "Auto")
         self.distribution = tk.StringVar(root, "—")
@@ -382,6 +383,7 @@ class TeamBuilderApp:
                 row, from_=low, to=high, variable=self.values[key],
                 command=lambda value, k=key, s=step: self._live_change(k, value, s),
             )
+            self.layout_sliders[key] = slider
             slider.pack(side="left", fill="x", expand=True, padx=10)
         tools = ttk.Frame(page)
         tools.pack(fill="x", pady=(8, 0))
@@ -713,6 +715,12 @@ class TeamBuilderApp:
         self.monitoring = False
         self.production_cancel.set()
         self.monitor_caption.set("Start automatic processing")
+        if not self.production_busy:
+            for slider in self.layout_sliders.values():
+                slider.state(["!disabled"])
+            self.rows_picker.configure(state="readonly")
+            if self.view and self.view.analysis.layout and self.view.templates_ready:
+                self.export_button.state(["!disabled"])
 
     def toggle_monitor(self):
         if self.monitoring:
@@ -737,6 +745,10 @@ class TeamBuilderApp:
             self.production_worker = LatestWorker(lambda path=state_dir: ProductionEngine(path))
             self.production_cancel = Event()
             self.monitoring = True
+            self.export_button.state(["disabled"])
+            for slider in self.layout_sliders.values():
+                slider.state(["disabled"])
+            self.rows_picker.configure(state="disabled")
             self.monitor_caption.set("Pause automatic processing")
             self.status.set("Watching hotfolder. Stable teams will process and export automatically.")
         except (OSError, ValueError) as error:
@@ -760,6 +772,8 @@ class TeamBuilderApp:
                 while True:
                     _token, result, error = self.production_worker.results.get_nowait()
                     self.production_busy = False
+                    if not self.monitoring:
+                        self.stop_monitor()
                     if error:
                         self.stop_monitor()
                         self.status.set("Automatic processing paused: " + error)
@@ -1249,6 +1263,8 @@ class TeamBuilderApp:
                     if (
                         value.analysis.layout
                         and self.live_timer is None
+                        and not self.monitoring
+                        and not self.production_busy
                         and value.templates_ready
                         and not any(
                             "outside athlete placement area" in i
@@ -1530,7 +1546,7 @@ class TeamBuilderApp:
                 break
 
     def _group_release(self, event):
-        if self.drag_start and self.panorama_map and not self.exporting:
+        if self.drag_start and self.panorama_map and not self.exporting and not self.monitoring and not self.production_busy:
             scale = self.panorama_map[2]
             previous = (
                 self.session.manifest.get("corrections", {})
@@ -1618,7 +1634,7 @@ class TeamBuilderApp:
             self.view.close()
         # Destroy UI objects only on the main thread and remove pending callbacks.
         for callback in self.root.tk.splitlist(self.root.tk.call("after", "info")):
-            self.root.after_cancel(callback)
+            self.root.tk.call("after", "cancel", callback)
         self.root.destroy()
 
 

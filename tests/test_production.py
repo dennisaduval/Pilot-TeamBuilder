@@ -257,6 +257,33 @@ class ProductionTests(unittest.TestCase):
         finally:
             view.close()
 
+    def test_excluded_corrected_source_keeps_annotation_without_blocking_team(self):
+        session = ReviewSession(self.job)
+        first = session.manifest["athletes"][0]
+        session.team["review_hashes"] = {first["id"]: "old-corrected-source"}
+        session.exclude(first["id"])
+        view = self.engine.engine.view(session.snapshot(), None)
+        try:
+            self.assertIsNotNone(view.analysis.layout)
+            self.assertEqual(len(view.analysis.layout.placements), 2)
+        finally:
+            view.close()
+
+    def test_live_processing_owner_cannot_be_stolen(self):
+        output = self.root / "claimed.jpg"
+        self.engine._claim("claim-test", output)
+        other = ProductionEngine(self.root / "state", SyntheticDetector())
+        try:
+            record = other._claim("claim-test", output)
+            self.assertEqual(record[0], "busy")
+        finally:
+            other.close()
+
+    def test_initial_enlargement_calibrates_common_reference_before_validation(self):
+        self.job["job_settings"] = {"group_scale": 1.1}
+        result = self.run_team()
+        self.assertEqual(result["statuses"][str(self.folder)]["state"], "Completed")
+
     def test_pause_before_work_has_no_side_effects(self):
         self.engine.tick(self.job, now=0)
         stop = Event()

@@ -118,12 +118,12 @@ class DesktopEngine:
             table = RowTable({count: requested_distribution(count, team["requested_rows"], ())})
         result = analyze_team(
             manifest, table, self.detector, self.disk, refresh, self.measurements,
-            retained_capture=job.get("retained_capture", False),
+            retained_capture=job.get("retained_capture", True),
             capture_canvas=job.get("capture_canvas"), fixed_scale=job.get("base_scale"),
         )
         for record in result.report["athletes"]:
             expected = team.get("review_hashes", {}).get(record["id"])
-            if expected and record.get("sha256") != expected:
+            if expected and record["status"] != "excluded" and record.get("sha256") != expected:
                 record["issues"].append("Source changed after manual correction; review its head/height again.")
                 record["status"] = "review"
                 result.layout = None

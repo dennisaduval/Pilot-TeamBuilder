@@ -156,7 +156,7 @@ def validate_job(job: dict, base_dir: Path):
             raise ValueError("Invalid team in saved job.")
         if type(team.get("preview_only", False)) is not bool:
             raise ValueError("Invalid preview-only team flag.")
-        manifest = manifest_from_data(team["manifest"], base_dir)
+        manifest = manifest_from_data(team["manifest"], base_dir, require_sources=not team.get("preview_only", False))
         if team.get("requested_rows") is not None:
             requested_distribution(sum(not e.excluded for e in manifest.entries), team["requested_rows"], ())
         if Path(job["output"]).resolve().is_relative_to(manifest.source_folder):

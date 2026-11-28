@@ -5,7 +5,8 @@ in Job setup). The preview can be outside Incoming. **Save & preview**, opening 
 job, selecting a folder, and adjusting controls never start production. Only the
 main **Start automatic processing** action starts automatic output and routing.
 An external preview is marked **Preview only** and never becomes a production
-candidate. A preview inside Incoming can be processed after Start like other teams.
+candidate. Moving/deleting that external folder after setup does not block saved
+defaults or the watched teams; choose another preview when needed. A preview inside Incoming can be processed after Start like other teams.
 
 Set overlap, row spacing, hero step, group size and position against the preview.
 These style settings are job-wide. Row CSV/manual row overrides determine the row

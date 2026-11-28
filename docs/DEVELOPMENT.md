@@ -674,6 +674,12 @@ exports, defaults inherited by actual incoming teams, preserved corrections, and
 migration. Mathematical checks cover every CSV size 1–45 plus 64/100, centered/common
 scale, fixed front anchor and saturation of a real width/top/framing constraint;
 also later-team enlargement, front-row sizing, increased row spacing and the 10%
-multi-row cap. Local suite: 160 tests, expected native/display skips. CI and packaged
+multi-row cap. Local suite: 161 tests, expected native/display skips. CI and packaged
 preview evidence are maintained in PR #4. Native appearance still needs operator
 validation with real event templates; fast top bands do not certify anatomical heads.
+
+0.8 portability follow-up: normalize temporary fixture roots before comparing saved
+paths (macOS /var aliases and Windows short names). Saved preview-only manifests
+retain strict schema/path checks but do not require an external folder to remain
+online after setup; actual preview/render paths still require live sources. Added
+a removed-preview save/reload/production regression.

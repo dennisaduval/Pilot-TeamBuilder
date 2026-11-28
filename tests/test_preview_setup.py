@@ -28,7 +28,7 @@ class PreviewSetupTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
-        self.root = Path(self.temp.name)
+        self.root = Path(self.temp.name).resolve()
         self.incoming = self.root / 'Incoming'
         self.incoming.mkdir()
         self.preview = self.root / 'Preview/Setup team'
@@ -75,6 +75,21 @@ class PreviewSetupTests(unittest.TestCase):
         write_sources(self.preview.parent / 'Other team', athletes(1))
         with self.assertRaisesRegex(ValueError, 'Choose one team folder'):
             select_preview_folder(self.job, self.preview.parent)
+
+    def test_a_removed_external_preview_does_not_block_saved_defaults_or_production(self):
+        import shutil
+        job = select_preview_folder(self.job, self.preview)
+        shutil.rmtree(self.preview)
+        path = self.root / 'saved.json'
+        JobStore().save(job, path)
+        restored = JobStore().load(path)
+        self.assertEqual(restored['job_settings'], job['job_settings'])
+        write_sources(self.incoming / 'Actual team', athletes(1))
+        production = ProductionEngine(self.root / 'state', NoDetector())
+        self.addCleanup(production.close)
+        waiting = production.tick(restored, now=0)
+        done = production.tick(waiting['job'], now=3)
+        self.assertEqual(done['statuses'][str((self.incoming / 'Actual team').resolve())]['state'], 'Completed')
 
     def test_preview_outside_hotfolder_never_enters_automatic_output(self):
         session = ReviewSession(select_preview_folder(self.job, self.preview))

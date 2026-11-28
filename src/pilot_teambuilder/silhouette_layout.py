@@ -3,6 +3,7 @@
 from math import isfinite
 from statistics import median
 
+from .framing import choose_scale, scale_windows
 from .model import ART_SIZE, PPI, Layout, Placement, Rect
 
 
@@ -12,10 +13,6 @@ def compose_silhouettes(active, rows, counts, settings, corrections, fixed_scale
     area = settings.area
     if fixed_scale is not None and (not isfinite(fixed_scale) or fixed_scale <= 0):
         raise ValueError("Job size must be positive and finite. Reset automatic fit.")
-    # The preview sets STYLE, not a permanent source-pixel scale. Re-evaluate
-    # framing from this team's front row so later teams can grow as well as shrink.
-    reference = area.height / (max(a.body.height for a in rows[-1]) * 0.75)
-    desired = reference * settings.group_scale * (0.9 if len(rows) > 1 else 1)
     # A common pitch preserves natural overlap: 15% at the default setting.
     pitch = median(a.body.width for a in active) * (1 - settings.overlap_fraction)
     pitch = max(pitch, max(a.head.width for a in active) * 1.05)
@@ -69,14 +66,61 @@ def compose_silhouettes(active, rows, counts, settings, corrections, fixed_scale
     top_edges = [(y + a.head.top, dy) for a, _, _, _, y, _, dy in raw]
     bottom_edges = [(y + a.head.bottom, dy) for a, _, _, _, y, _, dy in raw]
     front_edges = [(y + a.head.bottom, dy) for a, ri, _, _, y, _, dy in raw if ri == len(rows) - 1]
-    limits = {"front_framing": desired,
-              "width": limit(right_edges, left_edges, area.width),
+    front = [(a, y, dy) for a, ri, _, _, y, _, dy in raw if ri == len(rows) - 1]
+    cover_line = settings.foreground_line_in * PPI or area.bottom
+    waist = [(y + a.body.top + a.body.height * 0.5, dy, 1) for a, y, dy in front]
+    quarter = [(y + a.body.top + a.body.height * 0.75, dy, -1) for a, y, dy in front]
+    anchor_lines = [(-coord, anchor - move) for coord, move in front_edges]
+
+    def lowest(lines, scale):
+        return min(lines, key=lambda line: line[0] * scale + line[1])
+
+    limits = {"width": limit(right_edges, left_edges, area.width),
               "head_top": limit(front_edges, top_edges, anchor - area.top),
               "head_envelope": limit(bottom_edges, top_edges, area.height)}
-    scale = min(limits.values())
-    if not isfinite(scale) or scale <= 0 or lower > scale + 1e-7:
+    hard_cap = min(limits[k] for k in ("width", "head_top", "head_envelope"))
+    if not isfinite(hard_cap) or hard_cap <= 0 or lower > hard_cap + 1e-7:
         raise ValueError("Individual moves leave no room for this formation. Choose Reset placement.")
-    scale *= 1 - 1e-12  # Avoid floating-point edge overflow in final coordinates.
+    preferred_lines = [(m, b + settings.y_offset_in * PPI) for m, b in anchor_lines]
+    top_lines = [(-coord, area.top - move) for coord, move in top_edges]
+    bottom_lines = [(-coord, area.bottom - move) for coord, move in bottom_edges]
+
+    def translation(scale):
+        preferred = lowest(preferred_lines, scale)
+        floor = max(top_lines, key=lambda line: line[0] * scale + line[1])
+        ceiling = lowest(bottom_lines, scale)
+        return lowest([max([preferred, floor], key=lambda line: line[0] * scale + line[1]), ceiling], scale)
+
+    lines = preferred_lines + top_lines + bottom_lines
+    waist_windows = scale_windows(lines, translation, waist, cover_line)
+    waist_cap = max((hi for _, hi in waist_windows), default=0)
+    limited_vertical_move = False
+    if waist_cap <= 0 and settings.y_offset_in > 0:
+        # A downward move can put even the heads on the cover line. Limit that
+        # requested translation instead of holding an otherwise usable team.
+        preferred_lines = anchor_lines
+        lines = preferred_lines + top_lines + bottom_lines
+        waist_windows = scale_windows(lines, translation, waist, cover_line)
+        waist_cap = max((hi for _, hi in waist_windows), default=0)
+        limited_vertical_move = True
+    if not isfinite(waist_cap) or waist_cap <= 0:
+        raise ValueError("Cannot fit waist-up framing. Check the foreground cover line and source silhouettes.")
+    windows = scale_windows(lines, translation, waist + quarter, cover_line, lower=lower, upper=hard_cap)
+    reference = min((lo for lo, _ in windows), default=0)
+    if not windows:
+        # Large teams or strongly differing silhouettes can make the 3/4 floor
+        # impossible with the exact CSV rows. Retain bounds/all athletes and
+        # explain the looser framing without blocking automatic output.
+        windows = [(max(lo, lower), min(hi, hard_cap)) for lo, hi in waist_windows
+                   if max(lo, lower) <= min(hi, hard_cap) and min(hi, hard_cap) > 0]
+    if not windows:
+        raise ValueError("Placement leaves no room above the foreground cover line. Choose Reset placement or adjust the cover line.")
+    # A saved style preference is constrained by the framing window. At 100%,
+    # single-row teams reach the largest legal width/waist/top limit. Multi-row
+    # framing starts 10% smaller, unless width/top already impose a lower cap.
+    desired = min(waist_cap, max(reference, waist_cap * settings.group_scale * (0.9 if len(rows) > 1 else 1)))
+    limits["front_framing"] = desired
+    scale = choose_scale(windows, desired)
     points = placed(scale)
     left, right = min(p[5].left for p in points), max(p[5].right for p in points)
     top, bottom = min(p[6].top for p in points), max(p[6].bottom for p in points)
@@ -85,7 +129,7 @@ def compose_silhouettes(active, rows, counts, settings, corrections, fixed_scale
     ox = area.center_x - (left + right) / 2 + settings.x_offset_in * PPI
     # Match the established design anchor; bodies extend intact behind the FG.
     front_bottom = max(p[6].bottom for p in points if p[1] == len(rows) - 1)
-    oy = anchor - front_bottom + settings.y_offset_in * PPI
+    oy = anchor - front_bottom + (0 if limited_vertical_move else settings.y_offset_in * PPI)
     ox = min(max(ox, area.left - left), area.right - right)
     oy = min(max(oy, area.top - top), area.bottom - bottom)
     points.sort(key=lambda p: (p[1], -abs(p[2] - (counts[p[1]] - 1) / 2), p[0].relative_height, p[0].id))
@@ -95,5 +139,12 @@ def compose_silhouettes(active, rows, counts, settings, corrections, fixed_scale
         placements.append(Placement(a.id, ri, slot, scale, x, y,
                                     transform(a.body, scale, x, y), transform(a.head, scale, x, y),
                                     a.image_size, a.body))
+    fractions = [(cover_line - p.body.top) / p.body.height for p in placements if p.row == len(rows) - 1]
+    notes = ("The downward move was limited to retain waist-up framing.",) if limited_vertical_move else ()
+    if max(fractions) > 0.75 + 1e-7:
+        notes += ("The selected rows and placement limits require more than three-quarter framing for this team.",)
     return Layout(tuple(placements), counts, scale, (), clip=Rect(0, 0, *ART_SIZE),
-                  reference_scale=reference, fit_limits=limits)
+                  reference_scale=waist_cap, fit_limits=limits,
+                  framing={"cover_line_in": cover_line / PPI,
+                           "minimum_front_fraction": min(fractions), "maximum_front_fraction": max(fractions)},
+                  fit_notes=notes)

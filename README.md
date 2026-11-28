@@ -4,7 +4,7 @@
 
 Repository: [dennisaduval/Pilot-TeamBuilder](https://github.com/dennisaduval/Pilot-TeamBuilder).
 
-Version **0.8.1.dev0**, milestones TB-001 through TB-004. Includes an initial
+Version **0.9.0.dev0**, milestones TB-001 through TB-004. Includes an initial
 desktop review application, composition engine, manifest preflight and offline
 detection. Hotfolder processing and verified delivery are implemented; production field validation remains outstanding.
 
@@ -25,8 +25,12 @@ Selected defaults provide an explicit fallback for missing color templates.
 **Save & preview** keeps production paused. Select a preview-team folder, tune
 job defaults, then explicitly **Start automatic processing** when ready. A preview
 outside Incoming never enters automatic output. Each later team independently
-uses the largest scale allowed by front-row three-quarter framing, width and top
-boundaries; it can grow beyond the previous team's scale. See [fitting rules](docs/FITTING.md). A disposable 2-GiB local render cache avoids decoding PNGs twice during
+uses the largest scale allowed by front-row waist-up to three-quarter framing,
+width and top boundaries; it can grow beyond the previous team's scale. Small
+teams remain centered when waist-up framing prevents further enlargement. The
+foreground cover reference defaults to the placement-box bottom, with an optional
+inch-valued override under Advanced. See [fitting rules](docs/FITTING.md).
+A disposable 2-GiB local render cache avoids decoding PNGs twice during
 automatic processing; original file hashes are verified before using cached pixels.
 Final rendering remains full resolution and proportional. A visible **Reset placement**
 action restores a centered formation. Optional face-based placement remains in
@@ -54,8 +58,9 @@ master. See [recovery behavior](docs/RECOVERY.md).
 The watcher still waits for stable folders, supports team.ready, verifies sources
 before publication, tracks delivery in SQLite, prevents duplicate printing and
 resumes interruptions. Sources remain untouched in Incoming; automatic source archival
-is not yet implemented. The existing 0.8 framing rules remain unchanged while the
-operator's waist-to-three-quarter sizing preference is clarified.
+is not yet implemented. Very large teams or conflicting row/placement settings
+can require looser than three-quarter framing; an informational message explains
+this without blocking automatic output or changing the selected CSV rows.
 
 After installing the editable package, use `pilot-teambuilder-desktop` or
 `pilot-teambuilder-desktop --demo`. Apple Silicon CI builds a self-contained app

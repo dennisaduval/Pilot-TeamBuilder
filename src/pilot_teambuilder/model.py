@@ -73,6 +73,7 @@ class CompositionSettings:
     foreground_framing: float = 0.0  # 1 selects production head-anchored framing.
     transparency_mode: float = 0.0  # 1 uses alpha placement; no face detector.
     overlap_fraction: float = 0.15
+    foreground_line_in: float = 0.0  # 0 follows the placement area's bottom edge.
 
     def validate(self):
         if not all(isfinite(v) for v in vars(self).values()):
@@ -89,6 +90,8 @@ class CompositionSettings:
             raise ValueError("Transparency placement must be 0 or 1.")
         if not 0 <= self.overlap_fraction <= 0.6:
             raise ValueError("Athlete overlap must be between 0% and 60%.")
+        if self.foreground_line_in and not (self.top_in + self.height_in / 2 - 0.125 < self.foreground_line_in <= 8):
+            raise ValueError("Foreground cover line must be below the front-row guide and within the 8-inch artwork. Use 0 for the area bottom.")
         if not Rect(0, 0, *ART_SIZE).contains(self.area):
             raise ValueError("Athlete placement area must be inside the 24 × 8 artwork.")
 
@@ -131,6 +134,8 @@ class Layout:
     clip: Rect | None = None
     reference_scale: float | None = None
     fit_limits: dict[str, float] = field(default_factory=dict)
+    framing: dict[str, float] = field(default_factory=dict)
+    fit_notes: tuple[str, ...] = ()
 
 
 class ReviewRequired(ValueError):

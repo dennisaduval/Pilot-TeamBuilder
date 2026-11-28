@@ -36,5 +36,6 @@ external files. Network writes retry while the local master remains available.
 A publication interrupted after a print destination may have consumed its file is
 still ambiguous and requires operator review; it is never automatically resent.
 
-The waist-to-three-quarter framing change is separate and pending clarification.
-Version 0.8.1 retains the 0.8 fitting rules.
+Version 0.9 adds the confirmed waist-up to three-quarter fitting window. The new
+fit does not invalidate completed delivery receipts or automatically resend prints.
+Use deliberate Rebuild to deliver a completed team with the new sizing rules.

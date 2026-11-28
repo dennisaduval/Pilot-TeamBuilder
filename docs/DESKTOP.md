@@ -1,4 +1,4 @@
-# TeamBuilder 0.8.1 — automatic team production
+# TeamBuilder 0.9 — automatic team production
 
 Pilot TeamBuilder is an offline hotfolder application. Set up a job once, start
 monitoring, and drop team folders into the incoming folder. Valid teams render
@@ -82,7 +82,8 @@ source overview instead of a blank preview; this is not a finished composite.
 The **Layout** sliders set job-wide row separation, inverted-V step, athlete overlap (15% initially),
 athlete size (25–300%), and visible **Team up/down** and **Team left/right** offsets
 in 1/8-inch steps. **Center guides** show the artwork horizontal center and the
-placement-area vertical center; guides never appear in exported images.
+placement-area vertical center, plus the orange foreground cover reference;
+guides never appear in exported images.
 Area controls remain under Advanced. **Auto**
 follows the selected CSV exactly; requested/manual rows are explicit per-team
 exceptions. Layout edits reuse geometry and thumbnail caches. Pending edits
@@ -102,11 +103,21 @@ fixed-capture workflow, the silhouette's top coordinate supplies the height rank
 
 One standard pitch is based on typical silhouette width and the job's **Athlete
 overlap** percentage (15% initially). Each team independently chooses its largest
-allowed scale. Its front row's tallest silhouette supplies a three-quarter-height
-size reference; multi-row framing starts 10% smaller. Width and the top boundary
-can reduce that reference, preserving the front-row anchor 1/8 inch above the center
-guide. A previous team's size does not restrict later teams. The UI names the
-limiting boundary when athletes cannot grow further. See [fitting rules](FITTING.md).
+allowed scale while keeping front-row framing between waist-up and three-quarter
+length. At 100%, a single-row team fills as much width as possible, stopping at
+waist-up if necessary; a small team stays centered. Multi-row framing starts about
+10% smaller, with back/top bands kept inside the box. The front-row anchor remains
+1/8 inch above the center guide before a requested vertical move. A previous team's
+size does not restrict later teams. The UI names the limiting boundary.
+
+The foreground cover reference follows the placement-area bottom (6¾ in initially).
+If the template covers bodies elsewhere, set **Advanced → Foreground cover line**
+in inches; 0 follows the area bottom. This optional guide does not crop athletes.
+The geometric range is an estimate from full-body transparency, not a measured
+waist/knee. Size percentages are preferences bounded by the range: larger values
+cannot hide athletes above waist-up. If exact rows/top/width limits require looser
+than three-quarter framing, the app explains that without holding automatic output.
+See [fitting rules](FITTING.md).
 
 Every athlete in a team always shares one identical scale. Small teams stay centered
 rather than spreading unnaturally. Normal moves are fitted automatically. Full lower

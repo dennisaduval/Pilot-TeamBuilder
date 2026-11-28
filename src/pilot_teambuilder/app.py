@@ -500,6 +500,7 @@ class TeamBuilderApp:
             ("top_in", "Area top (in)", 0.125),
             ("width_in", "Area width (in)", 0.125),
             ("height_in", "Area height (in)", 0.125),
+            ("foreground_line_in", "Foreground cover line (in; 0 = box bottom)", 0.125),
         )
         for row, (key, label, step) in enumerate(fields):
             ttk.Label(page, text=label).grid(row=row, column=0, sticky="w", pady=4)
@@ -517,30 +518,30 @@ class TeamBuilderApp:
             spin.bind("<Return>", lambda e: self._guard(self.apply_settings)())
         ttk.Button(
             page, text="Apply composition", command=self._guard(self.apply_settings)
-        ).grid(row=11, column=0, columnspan=2, sticky="ew", pady=(10, 18))
+        ).grid(row=len(fields), column=0, columnspan=2, sticky="ew", pady=(10, 18))
         ttk.Label(page, text="Rows · back to front").grid(
-            row=12, column=0, columnspan=2, sticky="w"
+            row=len(fields) + 1, column=0, columnspan=2, sticky="w"
         )
         ttk.Entry(page, textvariable=self.row_counts, width=15).grid(
-            row=13, column=0, sticky="ew", pady=6
+            row=len(fields) + 2, column=0, sticky="ew", pady=6
         )
         ttk.Button(page, text="Apply rows", command=self._guard(self.apply_rows)).grid(
-            row=13, column=1, padx=(6, 0)
+            row=len(fields) + 2, column=1, padx=(6, 0)
         )
         ttk.Button(
             page, text="Use automatic rows", command=self._guard(self.auto_rows)
-        ).grid(row=14, column=0, columnspan=2, sticky="ew")
+        ).grid(row=len(fields) + 3, column=0, columnspan=2, sticky="ew")
         ttk.Button(
             page,
             text="Use original player-photo size",
             command=self._guard(self.confirm_scale),
-        ).grid(row=15, column=0, columnspan=2, sticky="ew", pady=(22, 6))
+        ).grid(row=len(fields) + 4, column=0, columnspan=2, sticky="ew", pady=(22, 6))
         ttk.Label(
             page,
             text="This refers to player PNGs, not templates. Use original photo size to sort heights automatically; individual height measurements are optional.",
             style="Sub.TLabel",
             wraplength=265,
-        ).grid(row=16, column=0, columnspan=2, sticky="w")
+        ).grid(row=len(fields) + 5, column=0, columnspan=2, sticky="w")
         page.columnconfigure(0, weight=1)
 
     def _athlete_tab(self):
@@ -1575,9 +1576,11 @@ class TeamBuilderApp:
             self.details.set(production["notice"])
         elif not problems and layout and layout.fit_limits:
             limiting = min(layout.fit_limits, key=layout.fit_limits.get)
-            reason = {"front_framing": "front-row three-quarter framing", "width": "available width",
+            reason = {"front_framing": "waist-up framing or the job size setting", "width": "available width",
                       "head_top": "top of the placement box", "head_envelope": "vertical space"}[limiting]
             self.details.set("Automatic fit: athlete size is limited by " + reason + ".")
+            if layout.fit_notes:
+                self.details.set(self.details.get() + "\n" + " ".join(layout.fit_notes))
         self.issue_label.configure(foreground="#92400E" if problems else ROYAL)
         self._sync_rows(layout.row_counts if layout else None)
         record = self._record()
@@ -1662,6 +1665,11 @@ class TeamBuilderApp:
             cx, cy = x + area.center_x * scale, y + (area.top + area.bottom) / 2 * scale
             self.canvas.create_line(cx, y, cx, y + 2400 * scale, fill=SKY, dash=(8, 4), tags="center-guide")
             self.canvas.create_line(x, cy, x + 7200 * scale, cy, fill=SKY, dash=(8, 4), tags="center-guide")
+            framing = self.view.analysis.layout.framing
+            if framing:
+                fy = y + framing["cover_line_in"] * PPI * scale
+                self.canvas.create_line(x + area.left * scale, fy, x + area.right * scale, fy,
+                                        fill=ORANGE, dash=(5, 4), tags="foreground-guide")
         for p in self.view.analysis.layout.placements:
             if p.athlete_id == self.selected_id and str(self.tabs) in self.main.panes():
                 b = p.head

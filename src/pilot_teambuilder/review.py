@@ -37,7 +37,7 @@ def new_job(incoming: Path, name: str | None = None, *, allow_empty=False) -> di
     return {
         "schema_version": 1,
         "hotfolder_mode": True,
-        "framing_version": 4,
+        "framing_version": 5,
         "name": name or incoming.name,
         "incoming": str(incoming),
         "templates": str(incoming.parent / "Templates/Team"),
@@ -256,9 +256,9 @@ def upgrade_job(job):
         settings["v_max_drop_in"] = max(settings.get("v_max_drop_in", 0.25), 0.5)
         result["base_scale"] = None
     settings.setdefault("transparency_mode", 1.0)
-    if result.get("framing_version", 0) < 4 and settings.get("transparency_mode"):
+    if result.get("framing_version", 0) < 5 and settings.get("transparency_mode"):
         result["base_scale"] = None
-    result["framing_version"] = 4
+    result["framing_version"] = 5
     result.setdefault("preview_team_source", "")
     result.setdefault("relaxed_detection", True)
     return result

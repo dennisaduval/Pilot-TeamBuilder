@@ -732,3 +732,53 @@ before their debounced change committed. Inventory application now flushes pendi
 edits first, and slider movement immediately invalidates older preview tokens. The
 existing real GUI defaults-inheritance test covers this race. Re-selection assertions
 compare saved semantic state while permitting new filesystem-identity metadata.
+
+
+## 2026-11-28 — 0.9.0.dev0 confirmed waist-up to three-quarter fitting
+
+Dennis confirmed: maximize team width while visible front-row athletes remain
+between waist-up and three-quarter length; center teams that hit waist-up first.
+Replaced the single 75%-of-body cap in fast mode with explicit 50%–75% silhouette
+references at the foreground cover line. The line defaults to the placement-box
+bottom; Advanced supports an optional shared inch-valued override, 0 = follow box.
+An orange preview guide makes the reference visible. Original source pixels and
+the foreground layering remain intact; there is no lower-body crop or new detector.
+
+Added a pure piecewise-linear framing solver. It accounts for hero offsets,
+individual inch moves, the front anchor and clamped job Y translation. Exact
+candidate-line intersections bound each interval; linear inequalities yield legal
+scale windows. All athletes retain the same pixel scale. Single-row default size
+reaches the largest legal width/waist/top limit. Multi-row framing retains a modest
+reduction before safety bounds. Job size preferences stop at the framing limits;
+values above 100% can relax multi-row reduction but never exceed waist-up.
+
+Where exact CSV rows, differing silhouettes or placement bounds make the 3/4
+minimum size impossible, use the largest safe waist/width/top fit and expose a
+nonblocking informational note. Do not discard athletes or invent different rows.
+Extreme downward group moves that leave no framing room are limited rather than
+turning a valid team into a production hold. Invalid individual geometry retains
+specific correction guidance. Optional legacy face/full-body sizing is unchanged.
+
+Version-5 migration clears obsolete fast calibration and preserves job defaults,
+template presets, corrections and completed receipts. Existing completed teams are
+not automatically reprinted; deliberate Rebuild applies the new fit to delivery.
+Ten new regression cases cover medium-team enlargement, small-team waist limits,
+size preferences, vertical/manual moves, cover lines, multi-row tops, every CSV size
+plus 64/100, mixed geometry and migration. Existing maximal-fit assertions now use
+the accepted range instead of the superseded single framing cap. CI build/results
+and packaged preview revision are recorded in PR #4.
+
+Framing is geometric, not anatomical: transparent bows, reflections, bent poses and
+irregular foregrounds can alter apparent length. Verify the representative preview
+and adjust the optional cover line when needed. No native-event speed/quality claim
+is made; real PNG previews stay local and customer photographs are not sent to CI.
+
+Local verification: 195 tests succeeded with 6 expected platform/display skips;
+Ruff import/undefined-name checks passed. Private 11- and 17-athlete sample previews
+were visually reviewed locally with 50% overlap, 92% size and -5/8-inch Y offset.
+Their widths changed from approximately 16.41 to 22.00 inches and 17.65 to 20.08
+inches respectively; front fractions stayed within the requested range. No source
+files were modified and no customer images were sent to CI. Geometry-only timing
+was about 2.03 ms/team (median of five Linux batches over CSV 1-45 plus 64/100),
+excluding PNG decoding, preview/rendering, settling and delivery. This is not an
+Apple Silicon/event throughput measurement. GUI and native bundle checks run in CI.

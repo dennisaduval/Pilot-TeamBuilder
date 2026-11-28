@@ -144,10 +144,11 @@ class MaximalFitTests(unittest.TestCase):
                 self.assertAlmostEqual(max(p.head.bottom for p in front), 1087.5)
                 top = min(p.head.top for p in layout.placements)
                 width = max(p.body.right for p in layout.placements) - min(p.body.left for p in layout.placements)
-                framed = max(p.source_body.height for p in front) * 0.75 * layout.global_scale
-                target = self.settings.area.height * (0.9 if len(layout.row_counts) > 1 else 1)
-                self.assertTrue(abs(width - 6600) < 1e-5 or abs(top - 225) < 1e-5 or abs(framed - target) < 1e-5,
+                fraction = min((self.settings.area.bottom - p.body.top) / p.body.height for p in front)
+                at_style_cap = abs(layout.global_scale - layout.fit_limits['front_framing']) < 1e-5
+                self.assertTrue(abs(width - 6600) < 1e-5 or abs(top - 225) < 1e-5 or abs(fraction - 0.5) < 1e-5 or at_style_cap,
                                 'The group can still grow without reaching a framing, width or top limit')
+                self.assertGreaterEqual(fraction, 0.5 - 1e-7)
                 for p in layout.placements:
                     self.assertTrue(self.settings.area.contains(p.head))
                 self.assertEqual(layout.issues, ())
@@ -167,7 +168,7 @@ class MaximalFitTests(unittest.TestCase):
                   for i, h in enumerate((2100, 1900, 800, 700))]
         layout = compose(people, RowTable({4: (2, 2)}), self.settings)
         front = [p for p in layout.placements if p.row == 1]
-        self.assertAlmostEqual(layout.reference_scale, 1800 / (max(p.source_body.height for p in front) * 0.75))
+        self.assertAlmostEqual(layout.reference_scale, (2025 - 1087.5) / (max(p.source_body.height for p in front) * 0.5 - 100))
         self.assertEqual({p.scale for p in layout.placements}, {layout.global_scale})
 
     def test_row_spacing_reduces_scale_without_shifting_front_heads_down(self):
@@ -179,9 +180,10 @@ class MaximalFitTests(unittest.TestCase):
             self.assertAlmostEqual(max(p.head.bottom for p in layout.placements if p.row == 2), 1087.5)
             self.assertAlmostEqual(min(p.head.top for p in layout.placements), 225)
 
-    def test_small_multi_row_team_gets_the_ten_percent_framing_reduction(self):
+    def test_small_multi_row_team_has_a_modest_framing_reduction_and_safe_tops(self):
         person = Athlete('one', (400, 1000), Rect(90, 300, 310, 970), Rect(155, 300, 245, 390), 700, 1)
         people = [replace(person, id=str(i)) for i in range(8)]
         one = compose(people, RowTable({8: (8,)}), self.settings)
         two = compose(people, RowTable({8: (4, 4)}), self.settings)
-        self.assertAlmostEqual(two.global_scale, one.global_scale * 0.9)
+        self.assertLessEqual(two.global_scale, one.global_scale * 0.9)
+        self.assertTrue(all(self.settings.area.contains(p.head) for p in two.placements))

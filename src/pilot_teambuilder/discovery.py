@@ -25,7 +25,13 @@ def team_folders(root: Path) -> list[Path]:
     found = []
 
     def visit(folder):
-        children = sorted(folder.iterdir())
+        try:
+            children = sorted(folder.iterdir())
+        except FileNotFoundError:
+            if folder == root:
+                raise
+            return  # A team was moved/deleted while the metadata scan was walking.
+
         if any(p.is_file() and not is_system_entry(p.relative_to(root))
                and p.suffix.lower() == ".png" for p in children):
             team = folder

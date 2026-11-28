@@ -96,7 +96,7 @@ def analyze_team(manifest: TeamManifest, table: RowTable, detector,
             if e.source_scale is None or e.relative_height is None or not e.geometry_id or not e.provenance:
                 errors.append("Height ranking needs confirmation. Check the fixed-capture job setting or correct this athlete's head/height.")
             if measured.sha256 in seen_hashes:
-                errors.append("Duplicate image content also used by " + seen_hashes[measured.sha256] + ".")
+                errors.append("Duplicate image: exact copy of " + seen_hashes[measured.sha256] + ". Renaming does not change the image; remove or exclude the copy.")
             seen_hashes[measured.sha256] = e.id
             if measured.head is not None:
                 record["head"] = asdict(measured.head)

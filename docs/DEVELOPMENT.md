@@ -683,3 +683,46 @@ paths (macOS /var aliases and Windows short names). Saved preview-only manifests
 retain strict schema/path checks but do not require an external folder to remain
 online after setup; actual preview/render paths still require live sources. Added
 a removed-preview save/reload/production regression.
+
+
+## 2026-11-28 — 0.8.1.dev0 live inventory and protected finished masters
+
+Resume of operator feedback from 0.8 screenshots: folders/removed files were stale,
+all completed teams could fall into a missing-master status, and Exclude was rejected
+by the generic busy guard. The requested waist-to-three-quarter sizing change was
+explicitly awaiting clarification; the question returned no answer. This patch keeps
+0.8 composition/framing mathematics unchanged and completes independent fixes.
+
+Added metadata-only InventoryScanner plus reconciliation helpers, independent of
+render/preview workers, with a ten-second UI cadence and forced Refresh reconciliation.
+It preserves current UI edits while merging older processing results; deleted entries
+clean offsets/anchors/review hashes and invalidate exact row overrides. Stable inode
+identities preserve renamed annotations. Content identities ignore filenames and
+excluded images, so a rename or later removal of an excluded file cannot reprint an
+unchanged composition. Legacy 0.8 ledger keys are adopted rather than starting a new
+printing cycle. Byte-identical added copies remain explicit duplicates with clear
+remove/exclude guidance. Only one uncached team's PNG bytes are hashed per tick.
+
+Automatic renders now create a durable verified local JPEG before publishing tracked
+copies to completed/upload/print destinations. Receipt master paths are independent
+of consumer folders. Legacy completed masters recover from verified known copies or
+via a local-only rebuild; no previous print delivery is resent. Current-settings
+recovery retains the previous delivered digest and exposes a nonblocking notice if
+the recovered local JPEG differs. Corrupted local copies are retained separately;
+untracked/changed external copies are not overwritten. Added Job/Open finished image.
+
+Exclude bypasses the generic busy guard, queues an edit after cancellation/finish of
+an in-flight unit, autosaves, refreshes, and resumes only an already-running watcher.
+Completed manual edits require intentional Rebuild for new delivery. Fast mode removes
+misleading head approval prompts; anatomical controls remain in optional face mode.
+Local suite and focused recovery tests cover live discovery, deletion/rename handling,
+stale worker merges, invalid-alpha exclusion, old receipts, moved/corrupted outputs,
+source changes and no-repeat printing. Two additional actual Tk flows exercise folder
+discovery while production is deliberately blocked and exclusion during a busy tick.
+CI results, source revision and packaged preview are recorded in PR #4.
+
+Known: source top bands and 3/4 framing remain estimates; waist-to-3/4 adaptation is
+pending operator clarification. Destination publication still requires atomic hard
+links. Legacy local-only recovery may use current settings when no original master
+copy exists; a notice states that prior deliveries were not resent. Original athlete
+PNGs remain untouched. Source archival is still future work.

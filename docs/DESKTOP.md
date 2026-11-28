@@ -1,4 +1,4 @@
-# TeamBuilder 0.8.0 — automatic team production
+# TeamBuilder 0.8.1 — automatic team production
 
 Pilot TeamBuilder is an offline hotfolder application. Set up a job once, start
 monitoring, and drop team folders into the incoming folder. Valid teams render
@@ -180,20 +180,36 @@ unambiguous handoff, enable **Require team.ready**, and create that marker only
 after copying all files (or atomically rename a completed folder into Incoming).
 The quiet interval still applies after the marker arrives.
 
-One production worker renders at most one team per poll; a separate bounded
-preview worker keeps selection responsive. Geometry, small previews and source
-hashes are cached with file-version invalidation. Sources are decoded serially
-for full rendering. No network service or model download is used.
+A separate metadata-only inventory worker checks every **10 seconds** while paused
+or processing. It discovers folders/additions without PNG decoding, removes deleted
+entries and stale corrections, and preserves edits across worker updates. **Refresh
+preview** forces this inventory step. A render never blocks queue discovery. Content
+hashing for uncached teams is bounded so a whole event is not read before returning
+the first queue update.
 
-A SQLite ledger records input identities, processing ownership, output receipts
-and per-destination publication. The master is one verified 7800 × 2400 JPEG at
-300 PPI; optional destinations receive byte-verified copies of that same file.
-Outputs use deterministic content-derived names, never overwrite existing files
-and never repeat completed deliveries. A printer consuming its file does not
-cause an automatic resend. Recovered interrupted masters are re-rendered to a
-separate candidate and compared before reuse. Missing/changed completed masters
-are held rather than automatically reprinted. Disconnected destinations retain
-verified masters and retry with a delay.
+One production worker renders or recovers at most one team per poll; the preview
+worker stays separate. Geometry, small previews and hashes are cached with file-version
+invalidation. The existing quiet-copy interval is independent of discovery and stays
+in force before rendering. No network service or model download is used.
+
+The authoritative finished JPEG now lives in local application support under the
+job's **Production/.../Masters** directory. Completed, Upload and Samples receive
+byte-verified tracked copies. External programs may move/consume those copies without
+turning a healthy local master into a missing-master error. Use **Job → Open finished
+image** to open the protected copy.
+
+Older completed receipts are adopted without reprinting. Recovery first uses any
+verified completed/delivered copy; if none remains, it can rebuild a local master
+from current inputs/settings. This local recovery never re-sends previously completed
+print deliveries. When recovered settings differ, a nonblocking notice explains that
+previous deliveries were unchanged. External files are never overwritten. See
+[recovery behavior](RECOVERY.md).
+
+**Exclude / restore athlete** works independently of a valid layout. During automatic
+processing it cancels/finishes the current unit safely, applies the edit, then resumes
+a watcher that was already running. Setup does not auto-start. Editing an already
+completed composition requires deliberate **Rebuild selected team** for a new export.
+Fast transparency mode hides anatomical head-confirmation controls.
 
 An interrupted print publication can be ambiguous: if the published file is gone,
 it might already have printed. That case is held for operator resolution rather

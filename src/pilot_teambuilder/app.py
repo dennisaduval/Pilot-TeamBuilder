@@ -4,6 +4,7 @@ import argparse
 import json
 import os
 import re
+import subprocess
 import sys
 import tkinter as tk
 from copy import deepcopy
@@ -11,6 +12,7 @@ from dataclasses import asdict
 from pathlib import Path
 from queue import Empty
 from threading import Event
+from time import monotonic
 from tkinter import filedialog, font, messagebox, ttk
 from uuid import uuid4
 
@@ -18,6 +20,7 @@ from PIL import Image, ImageTk
 
 from . import __version__
 from .desktop_engine import DesktopEngine, LatestWorker
+from .inventory_watch import InventoryScanner, apply_inventory, merge_processing_result
 from .model import PPI, CompositionSettings
 from .production import ProductionEngine
 from .review import (
@@ -98,6 +101,16 @@ class TeamBuilderApp:
         self.production_busy = False
         self.production_worker = None
         self.production_cancel = Event()
+        self.production_snapshot = None
+        self.inventory_worker = LatestWorker(InventoryScanner)
+        self.inventory_busy = False
+        self.inventory_interval = 10.0
+        self.inventory_last = float("-inf")
+        self.inventory_force = False
+        self.inventory_refresh_preview = False
+        self.job_generation = 0
+        self.deferred_exclusions = []
+        self.resume_after_edit = False
         self.saved_fingerprint = None
         self.closed = False
         self.export_destination = None
@@ -145,6 +158,7 @@ class TeamBuilderApp:
         self.root.protocol("WM_DELETE_WINDOW", self.close)
         self.root.after(80, self._drain)
         self.root.after(200, self._production_poll)
+        self.root.after(200, self._inventory_poll)
         self._load_recent()
         if job:
             self.set_job(job)
@@ -222,13 +236,13 @@ class TeamBuilderApp:
         self.monitor_button = ttk.Button(actions, textvariable=self.monitor_caption,
                                         style="Export.TButton", command=self.toggle_monitor)
         self.monitor_button.pack(side="right", padx=(8, 0))
-        self.analyze_button = ttk.Button(actions, text="Refresh preview", command=lambda: self.request_view(True))
+        self.analyze_button = ttk.Button(actions, text="Refresh preview", command=self.refresh_preview)
         self.analyze_button.pack(side="right", padx=4)
         menu_button = ttk.Menubutton(actions, text="Job ▾")
         menu = tk.Menu(menu_button, tearoff=False)
         for label, callback in (("New job…", self.new), ("Open saved job…", self.open),
                                 ("Save job", self.save), ("Save a copy…", lambda: self.save(True)),
-                                ("Demo", self.demo), ("Rebuild selected team", self.rebuild_selected)):
+                                ("Demo", self.demo), ("Open finished image", self.open_finished_image), ("Rebuild selected team", self.rebuild_selected)):
             menu.add_command(label=label, command=self._guard(callback))
         menu_button.configure(menu=menu)
         menu_button.pack(side="right", padx=4)
@@ -536,21 +550,18 @@ class TeamBuilderApp:
         self.portrait.bind("<ButtonPress-1>", self._portrait_press)
         self.portrait.bind("<B1-Motion>", self._portrait_motion)
         self.portrait.bind("<ButtonRelease-1>", self._portrait_release)
-        modes = ttk.Frame(page)
+        modes = self.head_modes = ttk.Frame(page)
         modes.pack(fill="x", pady=6)
         for mode in ("Head box", "Height top", "Feet"):
             ttk.Radiobutton(modes, text=mode, value=mode, variable=self.mode).pack(
                 side="left", padx=(0, 7)
             )
-        ttk.Label(
-            page,
-            text="Drag a corrected head box if needed. Height sorting is automatic for original-size photos; height/feet markers are optional overrides.",
-            style="Sub.TLabel",
-            wraplength=275,
-        ).pack(anchor="w", pady=(0, 7))
-        ttk.Button(
-            page, text="Confirm shown head box", command=self._guard(self.confirm_head)
-        ).pack(fill="x")
+        self.head_help = ttk.Label(page,
+            text="Drag a corrected head box if needed. Height/feet markers are optional overrides.",
+            style="Sub.TLabel", wraplength=275)
+        self.head_help.pack(anchor="w", pady=(0, 7))
+        self.confirm_head_button = ttk.Button(page, text="Confirm shown head box", command=self._guard(self.confirm_head))
+        self.confirm_head_button.pack(fill="x")
         controls = ttk.Frame(page)
         controls.pack(fill="x", pady=6)
         for text_, action in (
@@ -571,9 +582,8 @@ class TeamBuilderApp:
         ttk.Button(rows, text="Move", command=self._guard(self.move_row)).pack(
             side="left"
         )
-        ttk.Button(
-            page, text="Exclude / restore athlete", command=self._guard(self.exclude)
-        ).pack(fill="x")
+        self.exclude_button = ttk.Button(page, text="Exclude / restore athlete", command=self.exclude)
+        self.exclude_button.pack(fill="x")
         ttk.Label(
             page, textvariable=self.athlete_status, wraplength=275, justify="left"
         ).pack(anchor="w", pady=10)
@@ -746,7 +756,9 @@ class TeamBuilderApp:
         page.columnconfigure(1, weight=1)
         dialog.grab_set()
 
-    def stop_monitor(self):
+    def stop_monitor(self, preserve_edit_resume=False):
+        if not preserve_edit_resume:
+            self.resume_after_edit = False
         self.monitoring = False
         self.production_cancel.set()
         self.monitor_caption.set("Start automatic processing")
@@ -789,15 +801,113 @@ class TeamBuilderApp:
         except (OSError, ValueError) as error:
             self.status.set(str(error))
 
+    def open_finished_image(self):
+        if not self.session or not self.session.job["teams"]:
+            return
+        production = self.session.team.get("production", {})
+        path = Path(production.get("master") or production.get("output") or "")
+        if not path.is_file():
+            self.status.set("No finished image is available for this team yet.")
+            return
+        if sys.platform == "darwin":
+            subprocess.Popen(["open", str(path)])
+        elif sys.platform == "win32":
+            os.startfile(path)
+        else:
+            subprocess.Popen(["xdg-open", str(path)])
+
     def rebuild_selected(self):
         if not self.session or not self.session.job["teams"]:
             return
         self.session.team["rebuild_nonce"] = self.session.team.get("rebuild_nonce", 0) + 1
         self.session.team.pop("production", None)
+        self.session.team.pop("edited_completed", None)
         self.session.touch()
         self._autosave()
         self.request_view(True)
         self.status.set("Team queued for a deliberate new version. Start automatic processing to render and deliver it.")
+
+    def _update_queue(self):
+        job = self.session.job
+        ids = {str(i) for i in range(len(job["teams"]))}
+        for item in self.teams.get_children():
+            if item not in ids:
+                self.teams.delete(item)
+        for i, team in enumerate(job["teams"]):
+            state = "Preview only" if team.get("preview_only") else team.get("production", {}).get("state", "Queued")
+            count = sum(not e.get("excluded", False) for e in team["manifest"]["athletes"])
+            values = (count, state)
+            if self.teams.exists(str(i)):
+                self.teams.item(str(i), text=team["manifest"]["team_name"], values=values)
+            else:
+                self.teams.insert("", "end", iid=str(i), text=team["manifest"]["team_name"], values=values)
+        if job["teams"]:
+            self.teams.selection_set(str(job["selected_team"]))
+        done = sum(bool(t["exports"]) or t.get("production", {}).get("state") == "Completed" for t in job["teams"])
+        held = sum(t.get("production", {}).get("state") in {"Needs attention", "Retry needed", "Retry pending"} for t in job["teams"])
+        count = sum(not t.get("preview_only") for t in job["teams"])
+        self.summary.set(f"{count} teams · {done} complete · {held} need attention")
+        return done, held
+
+    def _accept_job_update(self, updated):
+        old = self.session.job
+        def selected_state(job):
+            if not job["teams"]:
+                return None
+            team = job["teams"][job["selected_team"]]
+            return (team["manifest"], team.get("inventory_version"), job.get("capture_canvas"), job.get("base_scale"))
+        previous = deepcopy(selected_state(old))
+        self.session.job = updated
+        self.session.touch()
+        self._autosave()
+        self._update_setup_summary()
+        done, held = self._update_queue()
+        if not updated["teams"]:
+            self.selected_id = None
+            self.athletes.delete(*self.athletes.get_children())
+            self._clear_view()
+            self.title.set("Waiting for team folders")
+        elif previous != selected_state(updated) or not self.view:
+            self._load_team()
+        else:
+            self._fill_lists()  # Clear a recovered team's old error immediately.
+        return done, held
+
+    def refresh_preview(self):
+        self.inventory_force = True
+        self.inventory_refresh_preview = True
+        self.inventory_last = float("-inf")
+        self.status.set("Checking folders and updating the selected team…")
+
+    def _inventory_poll(self):
+        if self.closed:
+            return
+        try:
+            while True:
+                token, result, error = self.inventory_worker.results.get_nowait()
+                self.inventory_busy = False
+                if not self.session or token != self.job_generation:
+                    continue
+                if error:
+                    self.status.set("Folder check: " + error)
+                elif result and not self.exporting:
+                    latest = apply_inventory(self.session.job, result)
+                    self._accept_job_update(latest)
+                    if self.inventory_refresh_preview and latest["teams"]:
+                        self.inventory_refresh_preview = False
+                        self.request_view(True)
+        except Empty:
+            pass
+        except (OSError, ValueError) as error:
+            self.status.set("Folder check: " + str(error))
+        if self.session and not self.inventory_busy and not self.exporting and (self.inventory_force or monotonic() - self.inventory_last >= self.inventory_interval):
+            root = self.session.job["incoming"]
+            previews = tuple(t["manifest"]["source_folder"] for t in self.session.job["teams"] if t.get("preview_only"))
+            self.inventory_busy = True
+            self.inventory_force = False
+            self.inventory_last = monotonic()
+            self.inventory_worker.submit(self.job_generation, lambda scanner, root=root, previews=previews: scanner.scan(root, previews))
+        self.root.after(200, self._inventory_poll)
 
     def _production_poll(self):
         if self.closed:
@@ -808,44 +918,19 @@ class TeamBuilderApp:
                     _token, result, error = self.production_worker.results.get_nowait()
                     self.production_busy = False
                     if not self.monitoring:
-                        self.stop_monitor()
+                        self.stop_monitor(preserve_edit_resume=True)
                     if error:
                         self.stop_monitor()
                         self.status.set("Automatic processing paused: " + error)
                     elif result and self.session:
-                        current = self.session.job
-                        selected_source = (self.session.manifest["source_folder"] if current["teams"] else None)
-                        old_selection = (deepcopy(self.session.manifest) if selected_source else None,
-                                         current.get("base_scale"), current.get("capture_canvas"))
-                        updated = result["job"]
-                        for i, team in enumerate(updated["teams"]):
-                            source = team["manifest"]["source_folder"]
-                            if source == selected_source:
-                                updated["selected_team"] = i
-                            team["production"] = result["statuses"].get(str(Path(source).resolve()), {"state": "Preview only"} if team.get("preview_only") else {})
-                            state = team["production"].get("state", "Queued")
-                            values = (len(team["manifest"]["athletes"]), state)
-                            if self.teams.exists(str(i)):
-                                self.teams.item(str(i), text=team["manifest"]["team_name"], values=values)
-                            else:
-                                self.teams.insert("", "end", iid=str(i), text=team["manifest"]["team_name"], values=values)
-                        self.session.job = updated
-                        self.session.touch()
-                        self._autosave()
-                        self._update_setup_summary()
-                        done = sum(t.get("production", {}).get("state") == "Completed" for t in updated["teams"])
-                        held = sum(t.get("production", {}).get("state") in {"Needs attention", "Retry needed", "Retry pending"} for t in updated["teams"])
-                        queued = sum(not t.get("preview_only") for t in updated["teams"])
-                        self.summary.set(f"{queued} teams · {done} complete · {held} need attention")
-                        if updated["teams"]:
-                            self.teams.selection_set(str(updated["selected_team"]))
-                            selection = (self.session.manifest, updated.get("base_scale"), updated.get("capture_canvas"))
-                            if old_selection != selection or not self.view:
-                                self._load_team()
-                        if updated["teams"] and self.session.team.get("production", {}).get("message"):
-                            self.details.set(self.session.team["production"]["message"])
+                        updated = merge_processing_result(self.session.job, result, self.production_snapshot or self.session.job)
+                        done, held = self._accept_job_update(updated)
                         if self.monitoring:
                             self.status.set(f"Watching hotfolder · {done} complete · {held} need attention")
+                    if self.deferred_exclusions:
+                        pending, self.deferred_exclusions = self.deferred_exclusions, []
+                        for edit in pending:
+                            self._apply_exclusion(*edit)
                     if self.pending_close:
                         self.pending_close = False
                         self.close()
@@ -858,6 +943,7 @@ class TeamBuilderApp:
         if self.monitoring and not self.production_busy and not self.exporting:
             self.production_busy = True
             snapshot = self.session.snapshot()
+            self.production_snapshot = deepcopy(snapshot)
             cancel = self.production_cancel
             self.production_worker.submit(1, lambda engine: engine.tick(snapshot, cancel))
         self.root.after(1000, self._production_poll)
@@ -1039,6 +1125,10 @@ class TeamBuilderApp:
         if self.production_busy:
             raise ValueError("Pause and finish the current team before changing jobs.")
         self.saved_fingerprint = None
+        self.job_generation += 1
+        self.inventory_last = float("-inf")
+        self.inventory_force = True
+        self.deferred_exclusions = []
         self.stop_monitor()
         self._flush_live()
         self.token += 1
@@ -1093,7 +1183,9 @@ class TeamBuilderApp:
             self._sync_rows()
         finally:
             self.loading_form = False
-        self.selected_id = self.session.manifest["athletes"][0]["id"]
+        available = {e["id"] for e in self.session.manifest["athletes"]}
+        if self.selected_id not in available:
+            self.selected_id = self.session.manifest["athletes"][0]["id"]
         self.athletes.delete(*self.athletes.get_children())
         for entry in self.session.manifest["athletes"]:
             self.athletes.insert("", "end", iid=entry["id"],
@@ -1212,7 +1304,7 @@ class TeamBuilderApp:
     def _rows(self):
         if not self.view or not self.view.analysis.layout:
             raise ValueError(
-                "Resolve head and height review items before rearranging rows."
+                "Build a valid layout before rearranging rows. Exclude or replace the unreadable source first."
             )
         return rows_from_layout(self.view.analysis.layout)
 
@@ -1238,9 +1330,40 @@ class TeamBuilderApp:
         self.request_view()
 
     def exclude(self):
-        if self.session and self.selected_id:
-            self.session.exclude(self.selected_id)
-            self.request_view()
+        if not self.session or not self.selected_id or self.exporting:
+            return
+        try:
+            entry = self.session.entry(self.selected_id)
+            edit = (self.session.manifest["source_folder"], self.selected_id, not entry.get("excluded", False))
+            resume = self.monitoring or self.resume_after_edit
+            self.stop_monitor(preserve_edit_resume=True)
+            self.resume_after_edit = resume
+            if self.production_busy:
+                self.deferred_exclusions.append(edit)
+                self.status.set("Pausing the current team to apply the exclusion safely…")
+            else:
+                self._apply_exclusion(*edit)
+        except (KeyError, ValueError, StopIteration) as error:
+            self.status.set("Could not update this athlete: " + str(error))
+
+    def _apply_exclusion(self, source, identity, desired):
+        index = next((i for i, t in enumerate(self.session.job["teams"]) if t["manifest"]["source_folder"] == source), None)
+        if index is None:
+            return
+        self.session.job["selected_team"] = index
+        entry = next((e for e in self.session.manifest["athletes"] if e["id"] == identity), None)
+        if entry is None:
+            self.refresh_preview()
+            return
+        if bool(entry.get("excluded", False)) != desired:
+            if self.session.team.get("production", {}).get("state") == "Completed":
+                self.session.team["edited_completed"] = True
+            self.session.exclude(identity)
+        self.selected_id = identity
+        self.session.team.pop("production", None)
+        self._autosave()
+        self._update_queue()
+        self.request_view()
 
     def select_athlete(self, event=None):
         selected = self.athletes.selection()
@@ -1357,6 +1480,10 @@ class TeamBuilderApp:
                         self.status.set("Completed automatically · team preview ready")
                     else:
                         self.status.set("Team preview ready · start automatic processing to render and deliver")
+                    if self.resume_after_edit and not self.production_busy and not self.pending_close:
+                        self.resume_after_edit = False
+                        self.toggle_monitor()
+
         except Empty:
             pass
         if not self.closed:
@@ -1401,7 +1528,8 @@ class TeamBuilderApp:
         )
         exported = sum(bool(t["exports"]) or t.get("production", {}).get("state") == "Completed" for t in self.session.job["teams"])
         previews = sum(bool(t.get("preview_only")) for t in self.session.job["teams"])
-        self.summary.set(f"{len(self.session.job['teams']) - previews} teams · {exported} complete" + (f" · {previews} preview" if previews else ""))
+        held = sum(t.get("production", {}).get("state") in {"Needs attention", "Retry needed", "Retry pending"} for t in self.session.job["teams"])
+        self.summary.set(f"{len(self.session.job['teams']) - previews} teams · {exported} complete · {held} need attention" + (f" · {previews} preview" if previews else ""))
         layout = self.view.analysis.layout if self.view else None
         if layout:
             self.row_counts.set(", ".join(map(str, layout.row_counts)))
@@ -1441,7 +1569,9 @@ class TeamBuilderApp:
                 else ""
             )
         )
-        if not problems and layout and layout.fit_limits:
+        if not problems and production.get("notice"):
+            self.details.set(production["notice"])
+        elif not problems and layout and layout.fit_limits:
             limiting = min(layout.fit_limits, key=layout.fit_limits.get)
             reason = {"front_framing": "front-row three-quarter framing", "width": "available width",
                       "head_top": "top of the placement box", "head_envelope": "vertical space"}[limiting]
@@ -1468,6 +1598,18 @@ class TeamBuilderApp:
             "Manual feet: " + ("set" if "floor_y" in anchors else "not set (optional)"),
             "Height order: " + ("available" if height else "needs measurement"),
         ]
+        fast = bool(self.session.job.get("job_settings", {}).get("transparency_mode"))
+        if fast:
+            self.head_modes.pack_forget()
+            self.confirm_head_button.pack_forget()
+            self.head_help.configure(text="Fast placement uses transparency. No head approval is needed. Exclude or replace an incorrect source below.")
+            state = ["Placement: transparency", "Height order: " + ("available" if height else "waiting for a valid PNG")]
+            if self.selected_id and self.session.entry(self.selected_id).get("excluded", False):
+                state = ["Excluded from the team. Restore this image to include it again."]
+        else:
+            self.head_modes.pack(fill="x", pady=6, before=self.head_help)
+            self.confirm_head_button.pack(fill="x", after=self.head_help)
+            self.head_help.configure(text="Drag a corrected head box if needed. Height/feet markers are optional overrides.")
         self.athlete_status.set("\n".join(state + record.get("issues", [])))
 
     @staticmethod
@@ -1580,6 +1722,8 @@ class TeamBuilderApp:
         return None
 
     def _portrait_press(self, event):
+        if not self.session or self.session.job.get("job_settings", {}).get("transparency_mode"):
+            return
         if self.exporting:
             return
         point = self._source_point(event)
@@ -1594,6 +1738,8 @@ class TeamBuilderApp:
                 self.request_view()
 
     def _portrait_motion(self, event):
+        if not self.session or self.session.job.get("job_settings", {}).get("transparency_mode"):
+            return
         if self.drag_start and self.portrait_map and self.mode.get() == "Head box":
             self.portrait.delete("drag")
             x, y, sx, sy = self.portrait_map
@@ -1608,6 +1754,8 @@ class TeamBuilderApp:
             )
 
     def _portrait_release(self, event):
+        if not self.session or self.session.job.get("job_settings", {}).get("transparency_mode"):
+            return
         end = self._source_point(event)
         if (
             self.drag_start
@@ -1719,6 +1867,7 @@ class TeamBuilderApp:
         self.closed = True
         if self.production_worker:
             self.production_worker.close()
+        self.inventory_worker.close()
         self.worker.close()
         if self.view:
             self.view.close()

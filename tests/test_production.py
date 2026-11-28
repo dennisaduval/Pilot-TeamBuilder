@@ -111,7 +111,7 @@ class ProductionTests(unittest.TestCase):
         Path(result["statuses"][str(self.folder)]["output"]).unlink()
         with patch.object(self.engine.engine, "export", side_effect=AssertionError("Duplicate render")):
             repeated = self.engine.tick(result["job"], now=4)
-        self.assertEqual(repeated["statuses"][str(self.folder)]["state"], "Needs attention")
+        self.assertEqual(repeated["statuses"][str(self.folder)]["state"], "Completed")
 
     def test_recovery_verifies_existing_render_without_overwrite(self):
         result = self.run_team()

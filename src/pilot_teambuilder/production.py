@@ -14,8 +14,9 @@ from uuid import uuid4
 
 from . import __version__
 from .desktop_engine import DesktopEngine
-from .discovery import source_paths, team_folders
-from .manifests import inventory
+from .discovery import team_folders
+from .inventory_watch import merge_inventory, snapshot
+from .master_store import install_copy, verify_jpeg
 from .review import fingerprint, upgrade_job, validate_job
 
 
@@ -60,16 +61,6 @@ def file_hash(path):
     return digest.hexdigest()
 
 
-def snapshot(folder):
-    paths = source_paths(folder)
-    if any(p.is_symlink() for p in paths):
-        raise ValueError("Remove symbolic links from the incoming team folder.")
-    if any(p.suffix.lower() in {".part", ".tmp", ".download", ".crdownload"} for p in paths):
-        raise ValueError("Transfer in progress: temporary files remain.")
-    return tuple((p.relative_to(folder).as_posix(), p.stat().st_size, p.stat().st_mtime_ns, p.stat().st_ctime_ns)
-                 for p in paths if p.is_file())
-
-
 class StableFolders:
     def __init__(self):
         self.seen = {}
@@ -101,38 +92,9 @@ class StableFolders:
         return result
 
 
-def merge_inventory(job, folder):
-    existing = next((t for t in job["teams"]
-                     if Path(t["manifest"]["source_folder"]).resolve() == folder.resolve()), None)
-    fresh = inventory(folder)
-    if existing is None:
-        fresh["settings"] = deepcopy(job.get("job_settings", {}))
-        # IDs are internal state only. The actual folder name is printed verbatim.
-        fresh["team_id"] = fingerprint(str(folder.resolve()))[:24]
-        existing = {"manifest": fresh, "anchors": {}, "templates": "", "exports": []}
-        job["teams"].append(existing)
-    else:
-        old = {e["file"]: e for e in existing["manifest"]["athletes"]}
-        fresh_entries = []
-        for entry in fresh["athletes"]:
-            if entry["file"] in old:
-                fresh_entries.append(old[entry["file"]])
-            else:
-                entry["id"] = "source-" + fingerprint(entry["file"])[:20]
-                fresh_entries.append(entry)
-        if {e["file"] for e in fresh_entries} != set(old):
-            # An inventory change invalidates exact manual row assignments.
-            existing["manifest"].setdefault("corrections", {}).pop("rows", None)
-            existing.pop("requested_rows", None)
-        existing["manifest"]["athletes"] = fresh_entries
-        existing["manifest"]["team_name"] = folder.name
-    existing.pop("preview_only", None)  # Watched sources become real queue entries.
-    return existing
-
-
 class ProductionEngine:
     def __init__(self, state_dir, detector=None):
-        state_dir = Path(state_dir)
+        state_dir = Path(state_dir).resolve()
         state_dir.mkdir(parents=True, exist_ok=True)
         self.root = state_dir
         self.engine = DesktopEngine(state_dir / "detections.sqlite3", detector)
@@ -141,6 +103,7 @@ class ProductionEngine:
         self.db.execute("PRAGMA synchronous=FULL")
         self.db.execute("CREATE TABLE IF NOT EXISTS teams (key TEXT PRIMARY KEY, state TEXT, output TEXT, receipt TEXT, message TEXT, owner TEXT, pid INTEGER)")
         self.db.execute("CREATE TABLE IF NOT EXISTS routes (key TEXT, destination TEXT, state TEXT, PRIMARY KEY(key,destination))")
+        self.db.execute("CREATE TABLE IF NOT EXISTS identities (content_key TEXT PRIMARY KEY, ledger_key TEXT NOT NULL)")
         self.db.commit()
         self.owner = uuid4().hex
         self.scanner = StableFolders()
@@ -249,139 +212,231 @@ class ProductionEngine:
             "output": job["output"], "routes": job.get("routes", []),
         })
 
+    def _identity(self, job, folder, version, team):
+        included = {e["file"] for e in team["manifest"]["athletes"] if not e.get("excluded", False)}
+        image_versions = [p for p in version if p[0] in included]
+        version_key = fingerprint((image_versions, team.get("rebuild_nonce", 0)))
+        saved = team.get("content_identity", {})
+        if saved.get("version") == version_key:
+            return saved["key"], False
+        hashes = [(p[0], self._source_hash(folder / p[0])) for p in image_versions]
+        relative = folder.resolve().relative_to(Path(job["incoming"]).resolve()).as_posix()
+        content = fingerprint((str(Path(job["incoming"]).resolve()), relative,
+                               sorted(h for _, h in hashes), team.get("rebuild_nonce", 0)))
+        found = self.db.execute("SELECT ledger_key FROM identities WHERE content_key=?", (content,)).fetchone()
+        key = found[0] if found else content
+        if not found:
+            # Adopt 0.8 receipts by their original identity; never reprint on upgrade.
+            legacy = fingerprint((str(Path(job["incoming"]).resolve()), folder.name, hashes, team.get("rebuild_nonce", 0)))
+            if self.db.execute("SELECT 1 FROM teams WHERE key=?", (legacy,)).fetchone():
+                key = legacy
+            self.db.execute("INSERT OR IGNORE INTO identities VALUES (?,?)", (content, key))
+            self.db.commit()
+        team["content_identity"] = {"version": version_key, "key": key}
+        return key, True
+
+    def _render_master(self, job, team, folder, version, output, cancel):
+        current = deepcopy(job)
+        current["selected_team"] = job["teams"].index(team)
+        view = self.engine.view(current, None, preview=False)
+        try:
+            if view.analysis.layout is None or not view.templates_ready:
+                problems = ([view.template_issue] if view.template_issue else []) + view.analysis.report["issues"]
+                problems += [f"{r['file']}: {issue}" for r in view.analysis.report["athletes"] for issue in r["issues"]]
+                raise ValueError("; ".join(problems[:4]) or "This team requires attention.")
+            if not job.get("capture_canvas"):
+                job["capture_canvas"] = view.analysis.report.get("capture_canvas")
+            if job.get("base_scale") is None and not job.get("job_settings", {}).get("foreground_framing") and not job.get("job_settings", {}).get("transparency_mode"):
+                factor = current.get("job_settings", {}).get("group_scale", 1.0)
+                job["base_scale"] = view.analysis.layout.global_scale / factor * 0.85
+                current["base_scale"] = job["base_scale"]
+                current["capture_canvas"] = job.get("capture_canvas")
+                view.close()
+                view = self.engine.view(current, None, preview=False)
+            if view.analysis.report["issues"]:
+                raise ValueError("; ".join(view.analysis.report["issues"][:4]))
+            def guard_publication():
+                if snapshot(folder) != version or (cancel and cancel.is_set()):
+                    raise SourceNotSettled("Team changed or monitoring paused. Waiting before retrying; no output was published.")
+            guard_publication()
+            if output.exists():
+                recovery = self.root / "recovery" / (uuid4().hex + ".jpg")
+                try:
+                    rendered = self.engine.export(current, view.review_signature, recovery, before_publish=guard_publication, prepared_view=view)
+                    if file_hash(recovery) != file_hash(output):
+                        raise ValueError("Interrupted output differs from the recovered render. Use Rebuild selected team for the changed layout.")
+                finally:
+                    recovery.unlink(missing_ok=True)
+            else:
+                rendered = self.engine.export(current, view.review_signature, output, before_publish=guard_publication, prepared_view=view)
+            guard_publication()
+            return {"sha256": file_hash(output), "master": str(output),
+                    "base_scale": job.get("base_scale"), "capture_canvas": job.get("capture_canvas"),
+                    "signature": view.review_signature, "measurement_timings": view.analysis.report["timings"],
+                    "render_timings": rendered["timings"], "source_cache_hits": rendered.get("source_cache_hits", 0)}
+        finally:
+            view.close()
+
+    def _recover_master(self, key, previous, job, team, folder, version, master, published, cancel):
+        receipt = json.loads(previous[2]) if previous[2] else {}
+        old_hash = receipt.get("sha256")
+        if master.exists() and not verify_jpeg(master, old_hash):
+            quarantine = self.root / "recovery" / (master.stem + "-retained-" + uuid4().hex + ".jpg")
+            quarantine.parent.mkdir(parents=True, exist_ok=True)
+            os.replace(master, quarantine)
+        public = receipt.get("published_output")
+        if not public:
+            old = Path(previous[1])
+            public = str(old if not old.is_relative_to(self.root / "Masters") else published)
+        candidates = [Path(previous[1]), Path(public), published]
+        candidates += [Path(r[0]) for r in self.db.execute("SELECT destination FROM routes WHERE key=? AND state='done'", (key,))]
+        recovered = False
+        for candidate in dict.fromkeys(candidates):
+            if candidate != master and verify_jpeg(candidate, old_hash):
+                install_copy(candidate, master, old_hash)
+                recovered = True
+                break
+        if not recovered:
+            fresh = self._render_master(job, team, folder, version, master, cancel)
+            receipt["delivered_sha256"] = receipt.get("delivered_sha256", old_hash)
+            receipt.update(fresh)
+            receipt["recovered_from_current_settings"] = True
+        receipt.update(master=str(master), published_output=public)
+        receipt["sha256"] = file_hash(master)
+        self._state(key, "completed", master, receipt)
+        self._log("master_recovered", team=folder.name, method="verified_copy" if recovered else "local_rebuild", deliveries_resent=False)
+        return receipt
+
     def tick(self, original, cancel=None, now=None):
-        """Poll all folders, then process at most one stable team per invocation."""
+        """One render/recovery per tick. Discovery and previews have their own worker."""
         job = upgrade_job(original)
+        if not Path(job["incoming"]).is_dir():
+            return {"job": job, "statuses": {t["manifest"]["source_folder"]: {"state": "Retry needed", "message": "Incoming hotfolder is unavailable; waiting for reconnection."} for t in job["teams"]}}
+        if Path(job["incoming"]).is_dir():
+            job["teams"] = [t for t in job["teams"] if t.get("preview_only") or Path(t["manifest"]["source_folder"]).is_dir()]
+            job["selected_team"] = min(job["selected_team"], max(0, len(job["teams"]) - 1))
         validate_job(job, Path.cwd())
-        statuses = {}
-        candidates = []
-        for folder, version, stable, message in self.scanner.scan(
-            Path(job["incoming"]), job.get("settle_seconds", 20), job.get("require_ready", False), now
-        ):
+        statuses, candidates = {}, []
+        for folder, version, stable, message in self.scanner.scan(Path(job["incoming"]), job.get("settle_seconds", 20), job.get("require_ready", False), now):
             statuses[str(folder.resolve())] = {"state": message}
             if stable:
                 team = merge_inventory(job, folder)
+                team.pop("preview_only", None)
                 candidates.append((folder, version, team))
-        # Larger teams first; fast fitting independently maximizes each team.
         candidates.sort(key=lambda item: (-len(item[2]["manifest"]["athletes"]), item[0].name))
         sources = {folder.resolve() for folder, *_ in candidates}
-        job["teams"] = [team for team in job["teams"] if team.get("preview_only") or not any(
-            source != Path(team["manifest"]["source_folder"]).resolve()
-            and source.is_relative_to(Path(team["manifest"]["source_folder"]).resolve())
-            for source in sources
-        )]
+        job["teams"] = [t for t in job["teams"] if t.get("preview_only") or not any(
+            source != Path(t["manifest"]["source_folder"]).resolve() and source.is_relative_to(Path(t["manifest"]["source_folder"]).resolve()) for source in sources)]
         if job["teams"]:
             job["selected_team"] = min(job["selected_team"], len(job["teams"]) - 1)
-        worked = False
+        worked, hashed = False, False
         for folder, version, team in candidates:
+            source = str(folder.resolve())
             if cancel and cancel.is_set():
                 break
-            source_hashes = [(p[0], self._source_hash(folder / p[0])) for p in version if Path(p[0]).suffix.lower() == ".png"]
-            key = fingerprint((str(Path(job["incoming"]).resolve()), folder.name, source_hashes, team.get("rebuild_nonce", 0)))
+            if team.get("edited_completed"):
+                statuses[source] = {"state": "Ready to rebuild", "message": "The completed layout was edited. Use Job → Rebuild selected team to export a new version."}
+                continue
+            # A startup may contain thousands of PNGs. Do not hash every future
+            # team's bytes before returning the first visible queue update.
+            active = {e["file"] for e in team["manifest"]["athletes"] if not e.get("excluded", False)}
+            identity_version = fingerprint(([p for p in version if p[0] in active], team.get("rebuild_nonce", 0)))
+            if (worked or hashed) and team.get("content_identity", {}).get("version") != identity_version:
+                continue
+            try:
+                key, newly_hashed = self._identity(job, folder, version, team)
+            except OSError:
+                hashed = True
+                statuses[source] = {"state": "Waiting for copying to finish", "message": "A source changed during the check; inventory will refresh automatically."}
+                continue
+            hashed |= newly_hashed
             safe_name = re.sub(r"[^\w .-]+", "_", folder.name).strip(" .") or "Team"
-            output = Path(job["output"]) / safe_name / f"{safe_name}_team_{key[:16]}.jpg"
+            name = f"{safe_name}_team_{key[:16]}.jpg"
+            master = self.root / "Masters" / name
+            published = Path(job["output"]) / safe_name / name
             previous = self.db.execute("SELECT state,output,receipt,message FROM teams WHERE key=?", (key,)).fetchone()
             if previous and previous[0] == "review":
                 reviewed = json.loads(previous[2]) if previous[2] else {}
                 if reviewed.get("configuration") != self._configuration(job, team):
-                    self._state(key, "interrupted", output, message="Job settings, corrections or templates changed; retrying.")
+                    self._state(key, "interrupted", master, message="Sources or corrections changed; retrying.")
                     previous = None
-            if previous and previous[0] in {"completed", "review"}:
-                statuses[str(folder.resolve())] = {"state": "Completed" if previous[0] == "completed" else "Needs attention", "message": previous[3], "output": previous[1]}
-                if previous[0] == "completed":
-                    receipt = json.loads(previous[2])
-                    # A lost master must never trigger duplicate printing.
-                    if not Path(previous[1]).is_file() or self._source_hash(Path(previous[1])) != receipt["sha256"]:
-                        statuses[str(folder.resolve())] = {"state": "Needs attention", "message": "Completed master is missing or changed. Restore it or deliberately rebuild this team."}
-                    if receipt.get("base_scale") and job.get("base_scale") is None and not job.get("job_settings", {}).get("transparency_mode"):
-                        job["base_scale"] = receipt["base_scale"]
-                    if receipt.get("capture_canvas") and not job.get("capture_canvas"):
-                        job["capture_canvas"] = receipt["capture_canvas"]
+            if previous and previous[0] == "review":
+                statuses[source] = {"state": "Needs attention", "message": previous[3], "key": key}
+                continue
+            if previous and previous[0] == "completed":
+                receipt = json.loads(previous[2])
+                protected = Path(receipt.get("master", str(master)))
+                try:
+                    healthy = protected.is_file() and self._source_hash(protected) == receipt["sha256"]
+                except OSError:
+                    healthy = False
+                if not healthy or not receipt.get("master"):
+                    if worked:
+                        statuses[source] = {"state": "Recovering finished master", "key": key}
+                        continue
+                    worked = True
+                    try:
+                        receipt = self._recover_master(key, previous, job, team, folder, version, master, published, cancel)
+                        protected = master
+                    except (OSError, ValueError, RuntimeError) as error:
+                        statuses[source] = {"state": "Retry needed", "message": "Local master recovery: " + str(error), "key": key}
+                        continue
+                public = Path(receipt.get("published_output", str(published)))
+                statuses[source] = {"state": "Completed", "output": str(protected), "published_output": str(public),
+                                    "master": str(protected), "key": key, "message": "",
+                                    "notice": "Recovered local image uses current settings. Previous deliveries were not resent." if receipt.get("recovered_from_current_settings") and receipt.get("delivered_sha256") != receipt["sha256"] else ""}
+                if receipt.get("base_scale") and job.get("base_scale") is None and not job.get("job_settings", {}).get("transparency_mode"):
+                    job["base_scale"] = receipt["base_scale"]
+                if receipt.get("capture_canvas") and not job.get("capture_canvas"):
+                    job["capture_canvas"] = receipt["capture_canvas"]
                 continue
             if key in self.retries and monotonic() < self.retries[key]:
-                statuses[str(folder.resolve())] = {"state": "Retry pending", "message": "Waiting before retrying an unavailable destination."}
+                statuses[source] = {"state": "Retry pending", "message": "Waiting before retrying an unavailable destination.", "key": key}
                 continue
             if worked:
                 continue
             worked = True
+            receipt = None
             try:
-                claimed = self._claim(key, output)
+                claimed = self._claim(key, master)
                 if claimed and claimed[0] == "busy":
-                    statuses[str(folder.resolve())] = {"state": "Processing", "message": claimed[3]}
+                    statuses[source] = {"state": "Processing", "message": claimed[3], "key": key}
                     continue
                 self._log("processing", team=folder.name, key=key)
                 if claimed and claimed[0] == "routing":
                     receipt = json.loads(claimed[2])
-                    output = Path(claimed[1])
-                    if file_hash(output) != receipt["sha256"]:
-                        raise ValueError("Completed master changed before routing; restore or deliberately rebuild.")
+                    existing = Path(receipt.get("master", claimed[1]))
+                    if not verify_jpeg(existing, receipt["sha256"]):
+                        raise ValueError("The local finished image needs recovery before delivery.")
+                    if existing != master:
+                        install_copy(existing, master, receipt["sha256"])
                 else:
-                    current = deepcopy(job)
-                    current["selected_team"] = job["teams"].index(team)
-                    view = self.engine.view(current, None, preview=False)
-                    try:
-                        if view.analysis.layout is None or not view.templates_ready:
-                            problems = ([view.template_issue] if view.template_issue else []) + view.analysis.report["issues"]
-                            problems += [f"{r['file']}: {issue}" for r in view.analysis.report["athletes"] for issue in r["issues"]]
-                            raise ValueError("; ".join(problems[:4]) or "This team requires attention.")
-                        if not job.get("capture_canvas"):
-                            job["capture_canvas"] = view.analysis.report.get("capture_canvas")
-                        if job.get("base_scale") is None and not job.get("job_settings", {}).get("foreground_framing") and not job.get("job_settings", {}).get("transparency_mode"):
-                            factor = current.get("job_settings", {}).get("group_scale", current["teams"][current["selected_team"]]["manifest"].get("settings", {}).get("group_scale", 1.0))
-                            job["base_scale"] = view.analysis.layout.global_scale / factor * 0.85
-                            job["capture_canvas"] = view.analysis.report.get("capture_canvas")
-                            current["base_scale"] = job["base_scale"]
-                            current["capture_canvas"] = job.get("capture_canvas")
-                            view.close()
-                            view = self.engine.view(current, None, preview=False)
-                        if view.analysis.report["issues"]:
-                            raise ValueError("; ".join(view.analysis.report["issues"][:4]))
-                        if snapshot(folder) != version or (cancel and cancel.is_set()):
-                            self._state(key, "interrupted", output, message="Source changed or monitoring paused before render.")
-                            statuses[str(folder.resolve())] = {"state": "Waiting for copying to finish"}
-                            continue
-                        def guard_publication(folder=folder, version=version):
-                            if snapshot(folder) != version or (cancel and cancel.is_set()):
-                                raise SourceNotSettled("Team changed or monitoring paused during render. Waiting before retrying; no output was published.")
-                        if output.exists():
-                            recovery = self.root / "recovery" / (key + "-" + uuid4().hex + ".jpg")
-                            try:
-                                rendered = self.engine.export(current, view.review_signature, recovery, before_publish=guard_publication, prepared_view=view)
-                                if file_hash(recovery) != file_hash(output):
-                                    raise ValueError("Interrupted output differs from the recovered render; no overwrite was attempted.")
-                            finally:
-                                recovery.unlink(missing_ok=True)
-                        else:
-                            rendered = self.engine.export(current, view.review_signature, output, before_publish=guard_publication, prepared_view=view)
-                        guard_publication()
-                        receipt = {"sha256": file_hash(output), "base_scale": job.get("base_scale"),
-                                   "capture_canvas": job.get("capture_canvas"), "signature": view.review_signature,
-                                   "measurement_timings": view.analysis.report["timings"],
-                                   "render_timings": rendered["timings"], "source_cache_hits": rendered.get("source_cache_hits", 0)}
-                        self._state(key, "routing", output, receipt)
-                    finally:
-                        view.close()
+                    receipt = self._render_master(job, team, folder, version, master, cancel)
+                receipt.update(master=str(master), published_output=receipt.get("published_output", str(published)))
+                self._state(key, "routing", master, receipt)
+                self._deliver(key, master, Path(receipt["published_output"]).parent, receipt["sha256"])
                 for destination in job.get("routes", []):
-                    self._deliver(key, output, destination, receipt["sha256"])
-                self._state(key, "completed", output, receipt)
-                statuses[str(folder.resolve())] = {"state": "Completed", "output": str(output)}
-                self._log("completed", team=folder.name, output=str(output),
-                          measurement_timings=receipt.get("measurement_timings"),
-                          render_timings=receipt.get("render_timings"), source_cache_hits=receipt.get("source_cache_hits", 0))
+                    self._deliver(key, master, destination, receipt["sha256"])
+                self._state(key, "completed", master, receipt)
+                statuses[source] = {"state": "Completed", "output": str(master), "published_output": receipt["published_output"], "master": str(master), "key": key, "message": ""}
+                self._log("completed", team=folder.name, output=str(master), measurement_timings=receipt.get("measurement_timings"), render_timings=receipt.get("render_timings"), source_cache_hits=receipt.get("source_cache_hits", 0))
             except SourceNotSettled as error:
-                self._state(key, "interrupted", output, message=str(error))
-                statuses[str(folder.resolve())] = {"state": "Waiting for copying to finish", "message": str(error)}
+                self._state(key, "interrupted", master, message=str(error))
+                statuses[source] = {"state": "Waiting for copying to finish", "message": str(error), "key": key}
             except OSError as error:
                 self.retries[key] = monotonic() + 30
-                # Keep a verified master/route receipt for reconnect-and-resume.
-                row = self.db.execute("SELECT state FROM teams WHERE key=?", (key,)).fetchone()
-                if not row or row[0] != "routing":
-                    self._state(key, "interrupted", output, message=str(error))
-                statuses[str(folder.resolve())] = {"state": "Retry needed", "message": str(error)}
+                if receipt:
+                    self._state(key, "routing", master, receipt, str(error))
+                else:
+                    self._state(key, "interrupted", master, message=str(error))
+                statuses[source] = {"state": "Retry needed", "message": str(error), "key": key}
                 self._log("retry", team=folder.name, message=str(error))
             except (ValueError, RuntimeError) as error:
-                self._state(key, "review", output, receipt={"configuration": self._configuration(job, team)}, message=str(error))
-                statuses[str(folder.resolve())] = {"state": "Needs attention", "message": str(error)}
+                if receipt:
+                    self._state(key, "routing", master, receipt, str(error))
+                else:
+                    self._state(key, "review", master, receipt={"configuration": self._configuration(job, team)}, message=str(error))
+                statuses[source] = {"state": "Needs attention", "message": str(error), "key": key}
                 self._log("review", team=folder.name, message=str(error))
         if cancel and cancel.is_set():
             for team in job["teams"]:

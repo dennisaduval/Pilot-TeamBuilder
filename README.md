@@ -4,7 +4,7 @@
 
 Repository: [dennisaduval/Pilot-TeamBuilder](https://github.com/dennisaduval/Pilot-TeamBuilder).
 
-Version **0.8.0.dev0**, milestones TB-001 through TB-004. Includes an initial
+Version **0.8.1.dev0**, milestones TB-001 through TB-004. Includes an initial
 desktop review application, composition engine, manifest preflight and offline
 detection. Hotfolder processing and verified delivery are implemented; production field validation remains outstanding.
 
@@ -33,11 +33,29 @@ action restores a centered formation. Optional face-based placement remains in
 Job setup; changed canvas geometry, invalid sources and unsafe deliveries remain
 recoverable exceptions. The correction pane is available on demand.
 
-The watcher waits for stable folders, supports an explicit team.ready marker,
-checks sources before publication, tracks processing/delivery in SQLite, prevents
-duplicate output/printing and resumes interrupted work. One 7800 × 2400 / 300-PPI
-JPEG is rendered and verified, then copied to configured destinations. Sources
-remain untouched in Incoming; automatic source archival is not yet implemented.
+A separate metadata-only check runs every **10 seconds**, including while setup is
+paused or another team is rendering. New folders/files appear automatically; deleted
+files and stale corrections are removed. Surviving/renamed files retain annotations
+when the filesystem supplies a stable file identity. **Refresh preview** forces an
+immediate folder reconciliation before rebuilding the preview.
+
+**Exclude / restore athlete** safely pauses an in-flight team, applies the change,
+and resumes a previously running watcher. Fast mode no longer presents head approval
+as a required correction. Exact copied images remain duplicate errors; renaming the
+copy does not change its content, but removing/excluding it clears the hold.
+
+Finished masters are retained locally under the job's application-support state.
+Configured completed/upload/print folders receive verified, tracked copies. An
+external copy being moved/consumed no longer invalidates the protected master.
+Legacy missing masters are imported from verified copies or rebuilt locally without
+resending old print deliveries. **Job → Open finished image** opens the retained
+master. See [recovery behavior](docs/RECOVERY.md).
+
+The watcher still waits for stable folders, supports team.ready, verifies sources
+before publication, tracks delivery in SQLite, prevents duplicate printing and
+resumes interruptions. Sources remain untouched in Incoming; automatic source archival
+is not yet implemented. The existing 0.8 framing rules remain unchanged while the
+operator's waist-to-three-quarter sizing preference is clarified.
 
 After installing the editable package, use `pilot-teambuilder-desktop` or
 `pilot-teambuilder-desktop --demo`. Apple Silicon CI builds a self-contained app

@@ -500,7 +500,7 @@ class TeamBuilderApp:
             ("top_in", "Area top (in)", 0.125),
             ("width_in", "Area width (in)", 0.125),
             ("height_in", "Area height (in)", 0.125),
-            ("foreground_line_in", "Foreground cover line (in; 0 = box bottom)", 0.125),
+            ("foreground_line_in", "Foreground cover line (in)\n0 = box bottom", 0.125),
         )
         for row, (key, label, step) in enumerate(fields):
             ttk.Label(page, text=label).grid(row=row, column=0, sticky="w", pady=4)

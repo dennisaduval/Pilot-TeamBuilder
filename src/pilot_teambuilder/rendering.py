@@ -1,19 +1,19 @@
 """Bounded template caching and serial full-resolution compositing."""
 
-from collections import OrderedDict
-from contextlib import closing
 import os
-from pathlib import Path
 import re
 import tempfile
+from collections import OrderedDict
+from contextlib import closing
+from pathlib import Path
 from time import perf_counter
 
 from PIL import Image, ImageOps
 
 from .identification import JobProfile, draw_right_footer
-from .model import ART_SIZE, FINAL_SIZE, Layout
-from .sources import load_png
 from .measurements import MeasurementCache
+from .model import ART_SIZE, FINAL_SIZE, Layout
+from .sources import load_png, render_source_box
 
 
 def discover_templates(root: Path) -> tuple[Path, Path]:
@@ -34,6 +34,28 @@ def discover_templates(root: Path) -> tuple[Path, Path]:
     return layers["background"], layers["foreground"]
 
 
+def template_artwork_box(size: tuple[int, int]) -> tuple[int, int, int, int]:
+    """Normalize the artwork region, preserving the right-hand print allowance.
+
+    Templates may describe either the 24 × 8 artwork or the 26 × 8 print sheet.
+    Small rounding differences from image exports are accepted; DPI metadata is
+    irrelevant to the aspect ratio. The rightmost 2/26 of a full sheet is never
+    stretched into the artwork. Identification is drawn separately by the app.
+    """
+    width, height = size
+    canvas = min((ART_SIZE, FINAL_SIZE), key=lambda ref: abs(width - height * ref[0] / ref[1]))
+    ratio = canvas[0] / canvas[1]
+    # Allow one source pixel of rounding in either dimension.
+    if abs(width - height * ratio) <= 1 + ratio:
+        right = width if canvas == ART_SIZE else round(width * ART_SIZE[0] / FINAL_SIZE[0])
+        return (0, 0, right, height)
+    raise ValueError(
+        f"Template is {width} × {height} px. Select landscape 24 × 8-inch artwork "
+        "or a 26 × 8-inch print template (for example 7200 × 2400 or 7800 × 2400 px). "
+        "The rightmost 2-inch strip is reserved for identification."
+    )
+
+
 class TemplateCache:
     """Two decoded artwork layers, owned by one rendering worker."""
 
@@ -47,21 +69,21 @@ class TemplateCache:
             self.layers.move_to_end(key)
             return self.layers[key]
         with Image.open(path) as opened, closing(ImageOps.exif_transpose(opened)) as oriented:
-            if oriented.width != oriented.height * 3:
-                raise ValueError(f"{path.name}: expected 3:1 landscape artwork.")
-            if foreground:
-                if opened.format != "PNG" or "A" not in oriented.getbands():
-                    raise ValueError("Foreground must be an alpha-channel PNG.")
-                with closing(oriented.getchannel("A")) as alpha:
-                    if alpha.getextrema()[0] == 255:
-                        raise ValueError("Foreground has no transparent pixels.")
-            elif opened.format != "JPEG":
-                raise ValueError("Background must be JPEG.")
-            converted = oriented.convert("RGBA")
-            try:
-                layer = converted.resize(size, Image.Resampling.LANCZOS)
-            finally:
-                converted.close()
+            artwork_box = template_artwork_box(oriented.size)
+            with closing(oriented.crop(artwork_box)) as artwork:
+                if foreground:
+                    if opened.format != "PNG" or "A" not in artwork.getbands():
+                        raise ValueError("Foreground must be an alpha-channel PNG.")
+                    with closing(artwork.getchannel("A")) as alpha:
+                        if alpha.getextrema()[0] == 255:
+                            raise ValueError("Foreground artwork has no transparent pixels.")
+                elif opened.format != "JPEG":
+                    raise ValueError("Background must be JPEG.")
+                converted = artwork.convert("RGBA")
+                try:
+                    layer = converted.resize(size, Image.Resampling.LANCZOS)
+                finally:
+                    converted.close()
         after = path.stat()
         if (stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns) != (after.st_size, after.st_mtime_ns, after.st_ctime_ns):
             layer.close()
@@ -77,10 +99,41 @@ class TemplateCache:
         self.layers.clear()
 
 
+def composite_subject(canvas, image, position, clip=None):
+    """Shared preview/final clipping. Templates and identification are unaffected."""
+    x, y = position
+    left = max(0, x, round(clip.left) if clip else 0)
+    top = max(0, y, round(clip.top) if clip else 0)
+    right = min(canvas.width, x + image.width, round(clip.right) if clip else canvas.width)
+    bottom = min(canvas.height, y + image.height, round(clip.bottom) if clip else canvas.height)
+    if right > left and bottom > top:
+        with closing(image.crop((left - x, top - y, right - x, bottom - y))) as part:
+            canvas.alpha_composite(part, (left, top))
+
+
+def composite_scaled_subject(canvas, image, bounds, scale, x, y, clip=None):
+    """Resample only the part reaching the artwork; keep original PNGs intact."""
+    width, height = max(1, round(bounds.width * scale)), max(1, round(bounds.height * scale))
+    px, py = round(x + bounds.left * scale), round(y + bounds.top * scale)
+    left = max(0, px, round(clip.left) if clip else 0)
+    top = max(0, py, round(clip.top) if clip else 0)
+    right = min(canvas.width, px + width, round(clip.right) if clip else canvas.width)
+    bottom = min(canvas.height, py + height, round(clip.bottom) if clip else canvas.height)
+    if right <= left or bottom <= top:
+        return
+    box = (bounds.left + (left - px) * bounds.width / width,
+           bounds.top + (top - py) * bounds.height / height,
+           bounds.left + (right - px) * bounds.width / width,
+           bounds.top + (bottom - py) * bounds.height / height)
+    with closing(image.resize((right - left, bottom - top), Image.Resampling.LANCZOS, box=box)) as region:
+        with closing(region.convert("RGBA")) as rgba:
+            canvas.alpha_composite(rgba, (left, top))
+
+
 def render(layout: Layout, sources: dict[str, Path], background: Path, foreground: Path,
            team_name: str, destination: Path, cache: TemplateCache | None = None,
            font: str = "", expected_hashes: dict[str, str] | None = None,
-           expected_templates: dict[str, tuple] | None = None) -> dict:
+           expected_templates: dict[str, tuple] | None = None, before_publish=None, source_cache=None) -> dict:
     """Render one draft/final artifact. Issues must block routing, not preview.
 
     Exclusive publication refuses overwrites. This milestone has no printer or
@@ -98,6 +151,7 @@ def render(layout: Layout, sources: dict[str, Path], background: Path, foregroun
     cache = cache or TemplateCache()
     start = perf_counter()
     timings = {}
+    initial_cache_hits = source_cache.hits if source_cache else 0
     temporary = None
     def verify_templates():
         if expected_templates is not None:
@@ -112,23 +166,32 @@ def render(layout: Layout, sources: dict[str, Path], background: Path, foregroun
             canvas.paste(bg, (0, 0))
             last = perf_counter()
             for p in layout.placements:
-                with load_png(sources[p.athlete_id]) as source:
+                expected = expected_hashes.get(p.athlete_id) if expected_hashes else None
+                loader = source_cache.load(sources[p.athlete_id], expected) if source_cache else load_png(sources[p.athlete_id])
+                with loader as source:
                     image = source.image
                     if expected_hashes is not None and source.sha256 != expected_hashes[p.athlete_id]:
                         raise ValueError(f"{p.athlete_id}: source content changed since analysis; rebuild.")
-                    if image.size != p.source_size:
+                    if source.size != p.source_size:
                         raise ValueError(f"{p.athlete_id}: source dimensions changed; rebuild layout.")
                     if not p.source_body.contains(source.body, tolerance=1):
                         raise ValueError(f"{p.athlete_id}: alpha bounds differ from layout; rebuild geometry.")
-                    bounds = source.body
-                    size = max(1, round(bounds.width * p.scale)), max(1, round(bounds.height * p.scale))
-                    # One athlete at a time bounds memory independently of team size.
-                    # Crop empty canvas BEFORE resizing. A tiny cutout in a huge
-                    # transparent PNG must never allocate a huge scaled canvas.
-                    with closing(image.crop((bounds.left, bounds.top, bounds.right, bounds.bottom))) as crop:
-                        with closing(crop.convert("RGBA")) as rgba, closing(rgba.resize(size, Image.Resampling.LANCZOS)) as resized:
-                            canvas.alpha_composite(resized, (round(p.x + bounds.left * p.scale),
-                                                            round(p.y + bounds.top * p.scale)))
+                    bounds = p.source_visible or source.body
+                    if not source.body.contains(bounds):
+                        raise ValueError("Visible crop exceeds the original source bounds.")
+                    cropped = None
+                    ox, oy = source.origin
+                    if source.original_size is None:
+                        box = render_source_box(source.body, source.size)
+                        cropped = image.crop(box)
+                        image, (ox, oy) = cropped, box[:2]
+                    try:
+                        from .model import Rect
+                        local_bounds = Rect(bounds.left - ox, bounds.top - oy, bounds.right - ox, bounds.bottom - oy)
+                        composite_scaled_subject(canvas, image, local_bounds, p.scale, p.x + ox * p.scale, p.y + oy * p.scale, layout.clip)
+                    finally:
+                        if cropped is not None:
+                            cropped.close()
             canvas.alpha_composite(fg, (0, 0))
             timings["composite_seconds"] = perf_counter() - last
             draw_right_footer(canvas, team_name, JobProfile(footer_font=font))
@@ -147,9 +210,12 @@ def render(layout: Layout, sources: dict[str, Path], background: Path, foregroun
         # Hard-link publication is atomic and refuses replacing an existing
         # file. Unsupported network filesystems fail explicitly for later retry.
         verify_templates()
+        if before_publish is not None:
+            before_publish()
         os.link(temporary, destination)
         timings["total_seconds"] = perf_counter() - start
         return {"size": FINAL_SIZE, "ppi": 300, "timings": timings,
+                "source_cache_hits": source_cache.hits - initial_cache_hits if source_cache else 0,
                 "review_required": bool(layout.issues), "issues": layout.issues}
     finally:
         if temporary is not None:

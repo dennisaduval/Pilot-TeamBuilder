@@ -13,6 +13,11 @@ from unittest.mock import patch
     "Run desktop smoke under a graphical display",
 )
 class DesktopSmokeTests(unittest.TestCase):
+    def tearDown(self):
+        # Multiple Tk roots in the harness must be collected on this main thread.
+        import gc
+        gc.collect()
+
     def test_choose_png_folder_uses_directory_picker_and_preserves_corrections(self):
         import tkinter as tk
 
@@ -35,18 +40,157 @@ class DesktopSmokeTests(unittest.TestCase):
                     picker.assert_called_once()
                     self.assertEqual(len(app.teams.get_children()), 1)
                     self.assertEqual(len(app.athletes.get_children()), 3)
-                    self.assertEqual(app.title.get(), "Real Team")
+                    self.assertEqual(app.title.get(), "001_Real Team")
                     identity = app.selected_id
                     app.session.offset(identity, 0.125, -0.25)
                     saved = app.session.snapshot()
                     app.choose_team_folder()
                     self.assertEqual(len(app.session.job["teams"]), 1)
-                    self.assertEqual(app.session.team, saved["teams"][0])
-                    self.assertTrue(app.session.dirty)
+                    # Re-scans add file identities; non-destructive edits stay intact.
+                    for key in ("manifest", "anchors", "templates", "exports"):
+                        self.assertEqual(app.session.team[key], saved["teams"][0][key])
+                    self.assertFalse(app.session.dirty)  # Re-selection now auto-saves the retained edits.
             finally:
                 if app.session:
                     app.session.dirty = False
                 app.close()
+
+    def test_z_automatic_hotfolder_main_screen(self):
+        import tkinter as tk
+
+        from PIL import Image, ImageGrab
+        from test_fast_placement import NoDetector
+
+        from pilot_teambuilder import __version__
+        from pilot_teambuilder.app import TeamBuilderApp
+        from pilot_teambuilder.desktop_engine import DesktopEngine
+        from pilot_teambuilder.production import ProductionEngine
+        from pilot_teambuilder.review import new_job
+        from pilot_teambuilder.synthetic import athletes, write_sources
+
+        with tempfile.TemporaryDirectory() as temp:
+            folder = Path(temp)
+            incoming = folder / "Incoming"
+            incoming.mkdir()
+            job = new_job(incoming, allow_empty=True)
+            job["settle_seconds"] = 0
+            templates = Path(job["templates"])
+            templates.mkdir(parents=True)
+            with Image.new("RGB", (975, 300), "navy") as image:
+                image.save(templates / "Team Background_default.jpg")
+            with Image.new("RGBA", (975, 300)) as image:
+                image.save(templates / "Team Foreground_default.png")
+            job["background"] = str(templates / "Team Background_default.jpg")
+            job["foreground"] = str(templates / "Team Foreground_default.png")
+            job["routes"] = [str(folder / "Upload"), str(folder / "Samples")]
+            root = tk.Tk()
+            app = TeamBuilderApp(root, folder / "state", job)
+            failures = []
+            root.report_callback_exception = lambda *error: failures.append(error)
+            def wait_for(predicate):
+                deadline = time.monotonic() + 30
+                while not predicate():
+                    root.update()
+                    if time.monotonic() > deadline:
+                        self.fail("Automatic desktop timed out: " + app.status.get())
+                    time.sleep(0.01)
+                root.update_idletasks()
+            try:
+                self.assertIn(__version__, root.title())
+                self.assertEqual(len(app.main.panes()), 2)  # Correction pane hidden.
+                with patch("pilot_teambuilder.app.ProductionEngine",
+                           side_effect=lambda state: ProductionEngine(state, NoDetector())), patch(
+                    "pilot_teambuilder.app.DesktopEngine",
+                    side_effect=lambda state: DesktopEngine(state, NoDetector()),
+                ):
+                    preview_folder = folder / "Preview/Setup Team"
+                    write_sources(preview_folder, athletes(5))
+                    with patch("pilot_teambuilder.app.filedialog.askdirectory", return_value=str(preview_folder)):
+                        app.choose_preview_team()
+                    wait_for(lambda: app.view is not None and app.view.analysis.layout is not None)
+                    self.assertEqual(app.session.job["incoming"], str(incoming))
+                    self.assertTrue(app.session.team["preview_only"])
+                    self.assertFalse(app.monitoring)
+                    self.assertFalse(Path(app.session.job["output"]).exists())
+                    for key, value, step in (("overlap_fraction", "20", 1), ("row_separation_heads", "1.75", 0.125), ("v_step_in", "0.15", 0.025)):
+                        before = app.view
+                        app._live_change(key, value, step)
+                        wait_for(lambda: app.view is not before)
+                    before = app.view
+                    app.values["foreground_line_in"].set("7")
+                    app.apply_settings()
+                    wait_for(lambda: app.view is not before)
+                    self.assertEqual(app.session.job["job_settings"]["foreground_line_in"], 7)
+                    sources = write_sources(incoming / "Event/Division/Automatic Team", athletes(9))
+                    for source in sources.values():
+                        source.rename(source.with_stem(source.stem + "_Aqua"))
+                    app.job_setup()
+                    def descendants(widget):
+                        for child in widget.winfo_children():
+                            yield child
+                            yield from descendants(child)
+                    save_preview = next(w for w in descendants(root)
+                                        if w.winfo_class() == "TButton" and w.cget("text") == "Save & preview")
+                    save_preview.invoke()
+                    self.assertFalse(app.monitoring, app.status.get())
+                    # Existing hotfolder teams must remain untouched during setup.
+                    until = time.monotonic() + 1.2
+                    while time.monotonic() < until:
+                        root.update()
+                        time.sleep(0.01)
+                    self.assertIsNone(app.production_worker)
+                    self.assertFalse(list(Path(app.session.job["output"]).rglob("*.jpg")))
+                    app.toggle_monitor()  # The only explicit Start action.
+                    self.assertTrue(app.monitoring, app.status.get())
+                    wait_for(lambda: any(t.get("production", {}).get("state") == "Completed" for t in app.session.job["teams"]))
+                    app.stop_monitor()
+                    wait_for(lambda: not app.production_busy)
+                    actual_index = next(i for i, t in enumerate(app.session.job["teams"]) if t["manifest"]["team_name"] == "Automatic Team")
+                    app.teams.selection_set(str(actual_index))
+                    app.select_team()
+                    wait_for(lambda: app.view is not None and app.view.analysis.report["team_name"] == "Automatic Team")
+                    self.assertEqual(app.view.analysis.report["settings"]["overlap_fraction"], 0.2)
+                    self.assertEqual(app.view.analysis.report["settings"]["row_separation_heads"], 1.75)
+                    self.assertAlmostEqual(app.view.analysis.report["settings"]["v_step_in"], 0.15)
+                    self.assertEqual(app.view.analysis.layout.framing["cover_line_in"], 7)
+                self.assertEqual(app.recent.get(), app.session.job["name"])
+                self.assertEqual(len(app.canvas.find_withtag("center-guide")), 2)
+                self.assertEqual(len(app.canvas.find_withtag("foreground-guide")), 1)
+                self.assertIn("selected default", app.view.template_names.casefold())
+                before = app.view
+                before_bottom = max(p.head.bottom for p in before.analysis.layout.placements if p.row == len(before.analysis.layout.row_counts) - 1)
+                app._live_change("y_offset_in", "0.5", 0.125)
+                wait_for(lambda: app.view is not before)
+                front_bottom = max(p.head.bottom for p in app.view.analysis.layout.placements if p.row == len(app.view.analysis.layout.row_counts) - 1)
+                self.assertAlmostEqual(front_bottom - before_bottom, 150)
+                self.assertGreaterEqual(app.view.analysis.layout.framing["minimum_front_fraction"], 0.5 - 1e-7)
+                app.center_guides.set(False)
+                app._draw_panorama()
+                self.assertEqual(len(app.canvas.find_withtag("center-guide")), 0)
+                self.assertEqual(len(app.canvas.find_withtag("foreground-guide")), 0)
+                app.center_guides.set(True)
+                app._draw_panorama()
+                self.assertFalse(app.view.draft)
+                self.assertEqual(app.view.analysis.report["placement_method"], "transparency")
+                self.assertEqual(len(app.view.analysis.layout.placements), 9)
+                self.assertIn("1 complete", app.summary.get())
+                self.assertEqual(len(list((folder / "Upload").glob("*.jpg"))), 1)
+                self.assertEqual(len(list((folder / "Samples").glob("*.jpg"))), 1)
+                self.assertFalse(failures, failures)
+                capture = os.environ.get("TEAMBUILDER_UI_CAPTURE")
+                if capture:
+                    with ImageGrab.grab(bbox=(root.winfo_rootx(), root.winfo_rooty(),
+                         root.winfo_rootx() + root.winfo_width(), root.winfo_rooty() + root.winfo_height())) as image:
+                        image.save(capture)
+            finally:
+                app.stop_monitor()
+                if app.production_busy:
+                    wait_for(lambda: not app.production_busy)
+                app.session.dirty = False
+                app.close()
+                if app.production_worker:
+                    app.production_worker.thread.join(3)
+                app.worker.thread.join(3)
 
     def test_saved_job_preview_correction_and_export_flow(self):
         import tkinter as tk
@@ -60,6 +204,8 @@ class DesktopSmokeTests(unittest.TestCase):
             root = tk.Tk()
             app = TeamBuilderApp(root, folder / "state")
             app.demo()
+            app.session.settings({"transparency_mode": 0})
+            app._load_team()
             try:
 
                 def wait_for(predicate):
@@ -107,6 +253,7 @@ class DesktopSmokeTests(unittest.TestCase):
                     app.session.manifest["settings"]["head_spacing_in"], 0.875
                 )
                 # Exercise actual canvas gestures with source-coordinate mapping.
+                app.show_review()
                 app.tabs.select(1)
                 root.update()
 
@@ -147,6 +294,8 @@ class DesktopSmokeTests(unittest.TestCase):
                     root.winfo_rootx() + root.winfo_width(),
                 )
                 self.assertGreater(app.canvas.winfo_width(), 500)
+                self.assertFalse(hasattr(app, "framing_box"))
+                self.assertLessEqual(app.export_button.winfo_rooty() + app.export_button.winfo_height(), root.winfo_rooty() + root.winfo_height())
                 root.geometry("1520x960")
                 root.update()
                 job_path = folder / "job.json"
@@ -176,6 +325,149 @@ class DesktopSmokeTests(unittest.TestCase):
             finally:
                 app.session.dirty = False
                 app.close()
+
+
+    def _wait_live(self, root, app, predicate):
+        deadline = time.monotonic() + 35
+        while not predicate():
+            root.update()
+            if time.monotonic() > deadline:
+                self.fail('Live desktop timed out: ' + app.status.get())
+            time.sleep(0.01)
+        root.update_idletasks()
+
+    def _close_live(self, root, app):
+        app.stop_monitor()
+        self._wait_live(root, app, lambda: not app.production_busy)
+        app.session.dirty = False
+        app.close()
+        for worker in (app.worker, app.production_worker, app.inventory_worker):
+            if worker:
+                worker.thread.join(3)
+
+    def _live_job(self, folder):
+        from PIL import Image
+
+        from pilot_teambuilder.review import new_job
+        incoming = folder / 'Incoming'
+        incoming.mkdir()
+        job = new_job(incoming, allow_empty=True)
+        job['settle_seconds'] = 0
+        job['routes'] = [str(folder / 'Print')]
+        templates = Path(job['templates'])
+        templates.mkdir(parents=True)
+        with Image.new('RGB', (900, 300), 'navy') as image:
+            image.save(templates / 'Team Background_default.jpg')
+        with Image.new('RGBA', (900, 300)) as image:
+            image.save(templates / 'Team Foreground_default.png')
+        return job
+
+    def test_live_discovery_is_independent_of_a_busy_production_worker(self):
+        import tkinter as tk
+        from threading import Event
+
+        from test_fast_placement import NoDetector
+
+        from pilot_teambuilder.app import TeamBuilderApp
+        from pilot_teambuilder.production import ProductionEngine
+        from pilot_teambuilder.synthetic import athletes, write_sources
+        gate, entered = Event(), Event()
+        class GatedEngine(ProductionEngine):
+            def tick(self, *args, **kwargs):
+                entered.set()
+                if not gate.wait(25):
+                    raise RuntimeError('Test gate was not released')
+                return super().tick(*args, **kwargs)
+        with tempfile.TemporaryDirectory() as temp:
+            folder = Path(temp).resolve()
+            job = self._live_job(folder)
+            root = tk.Tk()
+            app = TeamBuilderApp(root, folder / 'state', job)
+            failures = []
+            root.report_callback_exception = lambda *error: failures.append(error)
+            try:
+                self.assertEqual(app.inventory_interval, 10.0)
+                app.inventory_interval = 0.05  # Accelerate the same timer for regression.
+                write_sources(Path(job['incoming']) / 'One', athletes(2))
+                self._wait_live(root, app, lambda: len(app.session.job['teams']) == 1 and app.view is not None)
+                self.assertFalse(app.monitoring)
+                self.assertIsNone(app.production_worker)
+                self.assertFalse(Path(job['output']).exists())
+                with patch('pilot_teambuilder.app.ProductionEngine', side_effect=lambda state: GatedEngine(state, NoDetector())):
+                    app.toggle_monitor()
+                    self._wait_live(root, app, entered.is_set)
+                    write_sources(Path(job['incoming']) / 'Nested/Two', athletes(1))
+                    self._wait_live(root, app, lambda: len(app.session.job['teams']) == 2)
+                    self.assertTrue(app.production_busy)
+                    self.assertFalse(gate.is_set())
+                    gate.set()
+                    self._wait_live(root, app, lambda: sum(t.get('production', {}).get('state') == 'Completed' for t in app.session.job['teams']) == 2)
+                self.assertFalse(failures, failures)
+            finally:
+                gate.set()
+                self._close_live(root, app)
+
+    def test_live_exclusion_and_deleted_file_recovery_while_watching(self):
+        import tkinter as tk
+        from threading import Event
+
+        from PIL import Image
+        from test_fast_placement import NoDetector
+
+        from pilot_teambuilder.app import TeamBuilderApp
+        from pilot_teambuilder.production import ProductionEngine
+        from pilot_teambuilder.synthetic import athletes, write_sources
+        gate, entered, block_next = Event(), Event(), Event()
+        class GatedEngine(ProductionEngine):
+            def tick(self, *args, **kwargs):
+                if block_next.is_set():
+                    block_next.clear()
+                    entered.set()
+                    if not gate.wait(25):
+                        raise RuntimeError('Test gate was not released')
+                return super().tick(*args, **kwargs)
+        with tempfile.TemporaryDirectory() as temp:
+            folder = Path(temp).resolve()
+            job = self._live_job(folder)
+            source = Path(job['incoming']) / 'Real team'
+            write_sources(source, athletes(2))
+            bad = source / 'Bad.png'
+            with Image.new('RGB', (400, 1000), 'white') as image:
+                image.save(bad)
+            root = tk.Tk()
+            app = TeamBuilderApp(root, folder / 'state', job)
+            app.inventory_interval = 0.05
+            failures = []
+            root.report_callback_exception = lambda *error: failures.append(error)
+            try:
+                with patch('pilot_teambuilder.app.ProductionEngine', side_effect=lambda state: GatedEngine(state, NoDetector())):
+                    app.toggle_monitor()
+                    self._wait_live(root, app, lambda: app.session.job['teams'] and app.session.team.get('production', {}).get('state') == 'Needs attention')
+                    self._wait_live(root, app, lambda: app.view is not None and app.view.analysis.layout is None)
+                    block_next.set()
+                    self._wait_live(root, app, entered.is_set)
+                    identity = next(e['id'] for e in app.session.manifest['athletes'] if e['file'] == 'Bad.png')
+                    app.selected_id = identity
+                    app.show_review()
+                    root.update()
+                    app.exclude_button.invoke()  # Actual button, even while worker is busy.
+                    self.assertFalse(app.monitoring)
+                    self.assertTrue(app.deferred_exclusions)
+                    gate.set()
+                    self._wait_live(root, app, lambda: app.monitoring and app.session.team.get('production', {}).get('state') == 'Completed')
+                    self.assertTrue(app.session.entry(identity)['excluded'])
+                    self.assertEqual(len(list((folder / 'Print').glob('*.jpg'))), 1)
+                    bad.unlink()
+                    self._wait_live(root, app, lambda: len(app.session.manifest['athletes']) == 2 and app.view is not None and len(app.view.analysis.report['athletes']) == 2)
+                    self._wait_live(root, app, lambda: app.session.team.get('production', {}).get('state') == 'Completed')
+                    self.assertEqual(app.view.analysis.report['issues'], [])
+                    self.assertNotIn('missing or changed', app.details.get())
+                    self.assertEqual(len(list((folder / 'Print').glob('*.jpg'))), 1)
+                self.assertFalse(failures, failures)
+            finally:
+                gate.set()
+                self._close_live(root, app)
+
 
 
 if __name__ == "__main__":

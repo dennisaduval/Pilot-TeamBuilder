@@ -4,53 +4,70 @@
 
 Repository: [dennisaduval/Pilot-TeamBuilder](https://github.com/dennisaduval/Pilot-TeamBuilder).
 
-Version **0.3.1.dev0**, milestones TB-001 through TB-003. Includes an initial
+Version **0.9.0.dev0**, milestones TB-001 through TB-004. Includes an initial
 desktop review application, composition engine, manifest preflight and offline
-detection. Production watching/routing and packaged field releases remain in development.
+detection. Hotfolder processing and verified delivery are implemented; production field validation remains outstanding.
 
-## Desktop review
+## Automatic production desktop
 
-After installing the editable package, launch:
+**Choose hotfolder → Preview team → Job setup → Start when ready.** Team folders are
+team names; reliable teams render and deliver automatically without per-athlete
+approval. Saved job-wide settings include templates, color variants, the selected
+row CSV, common athlete size (up to 300%), overlap, placement and delivery locations.
+The visible header/window version identifies the actual installed build.
+Nested team folders are discovered recursively. The default fast path places athletes
+from the top of their transparency, keeps the exact incoming pixel proportions,
+and uses one scale for the whole team. No face model or head approval is required.
+Center heroes paint last; each outward position is lower. Athlete overlap starts
+at 15%, and ordinary offsets are fitted automatically rather than held for review.
+Selected defaults provide an explicit fallback for missing color templates.
 
-```sh
-pilot-teambuilder-desktop
-pilot-teambuilder-desktop --demo
-pilot-teambuilder-desktop --job /path/to/saved-job.json
-```
+**Save & preview** keeps production paused. Select a preview-team folder, tune
+job defaults, then explicitly **Start automatic processing** when ready. A preview
+outside Incoming never enters automatic output. Each later team independently
+uses the largest scale allowed by front-row waist-up to three-quarter framing,
+width and top boundaries; it can grow beyond the previous team's scale. Small
+teams remain centered when waist-up framing prevents further enlargement. The
+foreground cover reference defaults to the placement-box bottom, with an optional
+inch-valued override under Advanced. See [fitting rules](docs/FITTING.md).
+A disposable 2-GiB local render cache avoids decoding PNGs twice during
+automatic processing; original file hashes are verified before using cached pixels.
+Final rendering remains full resolution and proportional. A visible **Reset placement**
+action restores a centered formation. Optional face-based placement remains in
+Job setup; changed canvas geometry, invalid sources and unsafe deliveries remain
+recoverable exceptions. The correction pane is available on demand.
 
-Tk/Tcl is required (normally supplied with the desktop Python distribution;
-Linux users may need their distribution's tkinter package). On a Mac, build the
-native face helper with `python scripts/build_face_helper.py` before automatic
-detection. The synthetic demo works on every supported platform without it.
-The packaged desktop also has a **Demo** toolbar button for testing without commands.
+A separate metadata-only check runs every **10 seconds**, including while setup is
+paused or another team is rendering. New folders/files appear automatically; deleted
+files and stale corrections are removed. Surviving/renamed files retain annotations
+when the filesystem supplies a stable file identity. **Refresh preview** forces an
+immediate folder reconciliation before rebuilding the preview.
 
-The desktop includes a team queue, large panoramic preview, athlete list,
-inch-based composition controls, and a portrait editor for head boxes and
-anatomical head/foot anchors. Reviewers can change height order, row counts,
-row/slot assignments, exclusions and individual placement without changing PNGs.
-Saved jobs retain manual corrections, source calibration, template presets and
-export history. Current source preflight and conservative visibility checks still
-apply; physical-height recovery is not automatic in this milestone.
+**Exclude / restore athlete** safely pauses an in-flight team, applies the change,
+and resumes a previously running watcher. Fast mode no longer presents head approval
+as a required correction. Exact copied images remain duplicate errors; renaming the
+copy does not change its content, but removing/excluding it clears the hold.
 
-Use **Choose team folder…** to select athlete PNGs or the parent of several team
-folders; no JSON is required. **Open saved job…** restores saved corrections.
-**Import manifest…** is the advanced option for a verified CLI manifest.
-The **Layout** tab beneath the large panorama has live row-spacing, inverted-V,
-horizontal-spacing and group-size sliders, plus requested rows and a distribution
-readout. **Auto** follows the supplied CSV; explicit requested rows preserve every
-included athlete while enforcing 16 per row. **Advanced** retains exact inch fields
-and manual row distributions.
-Choose templates and a completed-image folder, confirm unchanged capture scale
-only when verified, analyze, and correct review items. **Approve & export JPEG**
-creates a new numbered 26 × 8-inch JPEG after rechecking the reviewed sources and
-templates. It never sends files to a printer or upload service. Save the job to
-retain edits. See [desktop guide](docs/DESKTOP.md).
+Finished masters are retained locally under the job's application-support state.
+Configured completed/upload/print folders receive verified, tracked copies. An
+external copy being moved/consumed no longer invalidates the protected master.
+Legacy missing masters are imported from verified copies or rebuilt locally without
+resending old print deliveries. **Job → Open finished image** opens the retained
+master. See [recovery behavior](docs/RECOVERY.md).
 
-Mac CI also builds an Apple Silicon `.app` preview, including Python/Tk, the row
-table and the native detector. It verifies the bundle and performs a startup smoke
-test before uploading the ZIP as a workflow artifact. No Python/Xcode installation
-is needed to run that preview. It has an ad-hoc signature, not a Developer ID or
-Apple notarization; it is a development build for testing, not an event release.
+The watcher still waits for stable folders, supports team.ready, verifies sources
+before publication, tracks delivery in SQLite, prevents duplicate printing and
+resumes interruptions. Sources remain untouched in Incoming; automatic source archival
+is not yet implemented. Very large teams or conflicting row/placement settings
+can require looser than three-quarter framing; an informational message explains
+this without blocking automatic output or changing the selected CSV rows.
+
+After installing the editable package, use `pilot-teambuilder-desktop` or
+`pilot-teambuilder-desktop --demo`. Apple Silicon CI builds a self-contained app
+including the native offline detector; no Python or Xcode is needed on the test
+Mac. The app is ad-hoc signed, unnotarized and still requires real-photo/event
+validation. See the [desktop guide](docs/DESKTOP.md) for templates, color naming,
+scale, transfer handoff and print-recovery behavior.
 
 ## Run and test
 
@@ -142,8 +159,8 @@ Use `--rows /path/to/row_counts.csv` to select an external row table.
   placement within the default 22 × 6-inch area at (1, 0.75) inches.
 - Inch-based composition settings and explicit manual row/slot assignment,
   exclusions/restoration, and per-athlete inch offsets in the engine API.
-- Case-insensitive `_default` template discovery, duplicate detection, 3:1
-  validation, alpha validation, and two-layer decoded cache.
+- Case-insensitive `_default` template discovery, duplicate detection, 24 × 8 artwork / 26 × 8
+  print-template handling, alpha validation, and two-layer decoded cache.
 - Serial PNG compositing, rotated identification strip adapted from PanoBuilder,
   verified JPEG publication, source-bound checks, no overwrite, stage timing.
 - Conservative face-obstruction review flags and hard failures for missing,

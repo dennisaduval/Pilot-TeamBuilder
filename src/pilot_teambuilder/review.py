@@ -3,13 +3,12 @@
 import hashlib
 import json
 import os
-import re
 import tempfile
 from copy import deepcopy
 from pathlib import Path
 
 from .composition import center_out_slots
-from .discovery import is_system_entry, png_paths
+from .discovery import team_folders
 from .manifests import inventory, load_manifest, manifest_from_data
 from .model import CompositionSettings
 from .rows import validate_rows
@@ -21,47 +20,41 @@ def fingerprint(data) -> str:
     ).hexdigest()
 
 
-def new_job(incoming: Path, name: str | None = None) -> dict:
+def new_job(incoming: Path, name: str | None = None, *, allow_empty=False) -> dict:
     incoming = incoming.resolve(strict=True)
-    folders = (
-        [incoming]
-        if any(
-            p.is_file()
-            and p.suffix.lower() == ".png"
-            and not is_system_entry(Path(p.name))
-            for p in incoming.iterdir()
-        )
-        else [
-            p
-            for p in sorted(incoming.iterdir())
-            if p.is_dir()
-            and not p.is_symlink()
-            and not is_system_entry(Path(p.name))
-            and p.name not in {"Templates", "Completed", "Upload", "Samples"}
-            and png_paths(p)
-        ]
-    )
-    if not folders:
+    folders = team_folders(incoming)
+    if not folders and not allow_empty:
         raise ValueError(
             "Choose a team folder or the incoming folder containing your team folders."
         )
     teams = []
     for folder in folders:
         manifest = inventory(folder)
-        manifest["team_name"] = re.sub(r"^\d+[_ -]+", "", folder.name)
+        manifest["team_name"] = folder.name
         teams.append(
             {"manifest": manifest, "anchors": {}, "templates": "", "exports": []}
         )
     return {
         "schema_version": 1,
+        "hotfolder_mode": True,
+        "framing_version": 5,
         "name": name or incoming.name,
         "incoming": str(incoming),
         "templates": str(incoming.parent / "Templates/Team"),
         "output": str(incoming.parent / "Completed Teams"),
         "row_csv": "",
         "template_presets": {},
+        "retained_capture": True,
+        "job_settings": {"crop_body_fraction": 1.0, "foreground_framing": 1.0,
+                         "transparency_mode": 1.0, "v_step_in": 0.125, "v_max_drop_in": 0.5},
+        "relaxed_detection": True,
+        "base_scale": None,
+        "settle_seconds": 20,
+        "require_ready": False,
+        "routes": [],
         "teams": teams,
         "selected_team": 0,
+        "preview_team_source": "",
     }
 
 
@@ -104,9 +97,24 @@ def add_image_folder(job: dict | None, folder: Path) -> dict:
         if any(t["manifest"]["team_id"] == team["manifest"]["team_id"] for t in result["teams"]):
             from uuid import uuid4
             team["manifest"]["team_id"] += ":" + uuid4().hex
+        if result.get("job_settings"):
+            team["manifest"]["settings"] = deepcopy(result["job_settings"])
         result["teams"].append(team)
         result["selected_team"] = len(result["teams"]) - 1
     validate_job(result, folder.parent)
+    return result
+
+
+def select_preview_folder(job: dict, folder: Path) -> dict:
+    """Select one real team for setup without changing the watched hotfolder."""
+    folders = team_folders(folder.resolve(strict=True))
+    if len(folders) != 1:
+        raise ValueError("Choose one team folder containing athlete PNGs, rather than a parent with several teams.")
+    result = add_image_folder(job, folders[0])
+    source = folders[0].resolve()
+    team = result["teams"][result["selected_team"]]
+    team["preview_only"] = not source.is_relative_to(Path(result["incoming"]).resolve())
+    result["preview_team_source"] = str(source)
     return result
 
 
@@ -131,12 +139,14 @@ def validate_job(job: dict, base_dir: Path):
         or type(job.get("schema_version")) is not int
         or job.get("schema_version") != 1
         or not isinstance(job.get("teams"), list)
-        or not job["teams"]
+        or (not job["teams"] and not job.get("hotfolder_mode"))
     ):
         raise ValueError("Unsupported or empty TeamBuilder job.")
     for key in ("name", "incoming", "templates", "output", "row_csv"):
         if not isinstance(job.get(key), str):
             raise ValueError(f"Invalid job {key}.")
+    if not isinstance(job.get("preview_team_source", ""), str):
+        raise ValueError("Invalid preview team folder.")
     if not isinstance(job.get("template_presets"), dict):
         raise ValueError("Invalid template settings in saved job.")
     if Path(job["output"]).resolve().is_relative_to(Path(job["incoming"]).resolve()):
@@ -144,7 +154,9 @@ def validate_job(job: dict, base_dir: Path):
     for team in job["teams"]:
         if not isinstance(team, dict) or not isinstance(team.get("manifest"), dict):
             raise ValueError("Invalid team in saved job.")
-        manifest = manifest_from_data(team["manifest"], base_dir)
+        if type(team.get("preview_only", False)) is not bool:
+            raise ValueError("Invalid preview-only team flag.")
+        manifest = manifest_from_data(team["manifest"], base_dir, require_sources=not team.get("preview_only", False))
         if team.get("requested_rows") is not None:
             requested_distribution(sum(not e.excluded for e in manifest.entries), team["requested_rows"], ())
         if Path(job["output"]).resolve().is_relative_to(manifest.source_folder):
@@ -155,10 +167,27 @@ def validate_job(job: dict, base_dir: Path):
             team.get("exports"), list
         ):
             raise ValueError("Invalid saved team review state.")
-    if type(job.get("selected_team")) is not int or not 0 <= job["selected_team"] < len(
-        job["teams"]
-    ):
+    if type(job.get("selected_team")) is not int or (job["teams"] and not 0 <= job["selected_team"] < len(job["teams"])):
         raise ValueError("Invalid selected team in job.")
+    from math import isfinite
+    if type(job.get("relaxed_detection", True)) is not bool:
+        raise ValueError("Detection mode must be true or false.")
+    if type(job.get("retained_capture", False)) is not bool:
+        raise ValueError("Fixed capture setting must be true or false.")
+    if type(job.get("settle_seconds", 20)) not in (int, float) or not 0 <= job.get("settle_seconds", 20) <= 3600:
+        raise ValueError("Copy settling time must be between 0 and 3600 seconds.")
+    if type(job.get("require_ready", False)) is not bool:
+        raise ValueError("Ready-marker setting must be true or false.")
+    scale = job.get("base_scale")
+    if scale is not None and (type(scale) not in (int, float) or not isfinite(scale) or scale <= 0):
+        raise ValueError("Invalid common job scale.")
+    CompositionSettings(**job.get("job_settings", {})).validate()
+    if not isinstance(job.get("routes", []), list) or any(not isinstance(p, str) or not p for p in job.get("routes", [])):
+        raise ValueError("Invalid delivery folders.")
+    source_roots = [Path(job["incoming"]).resolve()] + [Path(t["manifest"]["source_folder"]).resolve() for t in job["teams"]]
+    for target in [job["output"], *job.get("routes", [])]:
+        if any(Path(target).resolve().is_relative_to(source) for source in source_roots):
+            raise ValueError("Output/delivery folders must be outside incoming source folders.")
     fingerprint(job)  # Reject non-finite numbers before any write.
 
 
@@ -207,14 +236,44 @@ class JobStore:
         self.path, self.version = target, hashlib.sha256(payload).hexdigest()
 
 
+def upgrade_job(job):
+    result = deepcopy(job)
+    settings = result.setdefault("job_settings", {})
+    if result.get("framing_version", 0) < 2:
+        settings["foreground_framing"] = 1.0
+        result["base_scale"] = None
+        # Template presets must not reintroduce the removed lower-body crop.
+        for preset in result.get("template_presets", {}).values():
+            if isinstance(preset, dict):
+                preset["crop_body_fraction"] = 1.0
+                preset["foreground_framing"] = 1.0
+    settings["crop_body_fraction"] = 1.0
+    settings.setdefault("foreground_framing", 1.0)
+    if result.get("framing_version", 0) < 3:
+        settings["transparency_mode"] = 1.0
+        if settings.get("v_step_in", 0.025) == 0.025:
+            settings["v_step_in"] = 0.125
+        settings["v_max_drop_in"] = max(settings.get("v_max_drop_in", 0.25), 0.5)
+        result["base_scale"] = None
+    settings.setdefault("transparency_mode", 1.0)
+    if result.get("framing_version", 0) < 5 and settings.get("transparency_mode"):
+        result["base_scale"] = None
+    result["framing_version"] = 5
+    result.setdefault("preview_team_source", "")
+    result.setdefault("relaxed_detection", True)
+    return result
+
+
 class ReviewSession:
     def __init__(self, job: dict):
-        self.job = deepcopy(job)
+        self.job = upgrade_job(job)
         self.revision = 0
         self.dirty = False
 
     @property
     def team(self):
+        if not self.job["teams"]:
+            raise ValueError("Waiting for the first team folder.")
         return self.job["teams"][self.job["selected_team"]]
 
     @property
@@ -235,14 +294,17 @@ class ReviewSession:
         return next(e for e in self.manifest["athletes"] if e["id"] == identity)
 
     def settings(self, values: dict):
-        candidate = {**self.manifest.get("settings", {}), **values}
+        candidate = {**self.job.get("job_settings", {}), **values}
         CompositionSettings(**candidate).validate()
-        self.manifest["settings"] = candidate
-        template = self.team.get("templates") or self.job["templates"]
+        self.job["job_settings"] = deepcopy(candidate)
+        for team in self.job["teams"]:
+            team["manifest"]["settings"] = deepcopy(candidate)
+        template = (self.team.get("templates") if self.job["teams"] else None) or self.job["templates"]
         self.job["template_presets"][template] = deepcopy(candidate)
         self.touch()
 
     def confirm_scale(self):
+        self.job["retained_capture"] = True
         for entry in self.manifest["athletes"]:
             entry["capture"].update(
                 source_scale=1.0,

@@ -1,12 +1,12 @@
 """Versioned team input contracts; capture geometry is explicit, never guessed."""
 
-from dataclasses import dataclass
 import json
+from dataclasses import dataclass
 from math import isfinite
 from pathlib import Path
 
-from .model import CompositionSettings, Corrections, Rect
 from .discovery import is_system_entry, source_paths
+from .model import CompositionSettings, Corrections, Rect
 
 
 def positive(value, label):
@@ -77,7 +77,7 @@ def load_manifest(path: Path) -> TeamManifest:
     return manifest_from_data(data, path.parent)
 
 
-def manifest_from_data(data: dict, base_dir: Path) -> TeamManifest:
+def manifest_from_data(data: dict, base_dir: Path, *, require_sources=True) -> TeamManifest:
     """Validate an in-memory editor snapshot using the same contract as the CLI."""
     keys(data, ("schema_version", "team_id", "team_name", "source_folder", "athletes",
                 "settings", "corrections"), "team manifest")
@@ -88,8 +88,8 @@ def manifest_from_data(data: dict, base_dir: Path) -> TeamManifest:
         folder = base_dir / folder
     if folder.is_symlink():
         raise ValueError("Source folders cannot be symbolic links.")
-    folder = folder.resolve(strict=True)
-    if not folder.is_dir():
+    folder = folder.resolve(strict=require_sources)
+    if (require_sources or folder.exists()) and not folder.is_dir():
         raise ValueError("source_folder must be a directory.")
     records = data.get("athletes")
     if not isinstance(records, list) or not records:

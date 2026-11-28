@@ -69,14 +69,29 @@ class CompositionSettings:
     group_scale: float = 1.0
     x_offset_in: float = 0.0
     y_offset_in: float = 0.0
+    crop_body_fraction: float = 1.0  # Deprecated saved-job field; never trims sources.
+    foreground_framing: float = 0.0  # 1 selects production head-anchored framing.
+    transparency_mode: float = 0.0  # 1 uses alpha placement; no face detector.
+    overlap_fraction: float = 0.15
+    foreground_line_in: float = 0.0  # 0 follows the placement area's bottom edge.
 
     def validate(self):
         if not all(isfinite(v) for v in vars(self).values()):
             raise ValueError("Composition settings must be finite.")
         if min(self.width_in, self.height_in, self.head_spacing_in, self.row_separation_heads) <= 0:
             raise ValueError("Placement dimensions and spacing must be positive.")
-        if not 0 < self.group_scale <= 1 or min(self.v_step_in, self.v_max_drop_in) < 0:
-            raise ValueError("Group scale must be in (0,1]; inverted-V values cannot be negative.")
+        if not 0 < self.group_scale <= 3 or min(self.v_step_in, self.v_max_drop_in) < 0:
+            raise ValueError("Group scale must be in (0,3]; inverted-V values cannot be negative.")
+        if not 0.25 <= self.crop_body_fraction <= 1:
+            raise ValueError("Visible body fraction must be between 0.25 and 1.")
+        if self.foreground_framing not in (0, 1):
+            raise ValueError("Foreground framing must be 0 or 1.")
+        if self.transparency_mode not in (0, 1):
+            raise ValueError("Transparency placement must be 0 or 1.")
+        if not 0 <= self.overlap_fraction <= 0.6:
+            raise ValueError("Athlete overlap must be between 0% and 60%.")
+        if self.foreground_line_in and not (self.top_in + self.height_in / 2 - 0.125 < self.foreground_line_in <= 8):
+            raise ValueError("Foreground cover line must be below the front-row guide and within the 8-inch artwork. Use 0 for the area bottom.")
         if not Rect(0, 0, *ART_SIZE).contains(self.area):
             raise ValueError("Athlete placement area must be inside the 24 × 8 artwork.")
 
@@ -106,6 +121,7 @@ class Placement:
     head: Rect
     source_size: tuple[int, int]
     source_body: Rect
+    source_visible: Rect | None = None
 
 
 @dataclass(frozen=True)
@@ -115,6 +131,11 @@ class Layout:
     global_scale: float
     issues: tuple[str, ...]
     schema_version: int = 1
+    clip: Rect | None = None
+    reference_scale: float | None = None
+    fit_limits: dict[str, float] = field(default_factory=dict)
+    framing: dict[str, float] = field(default_factory=dict)
+    fit_notes: tuple[str, ...] = ()
 
 
 class ReviewRequired(ValueError):

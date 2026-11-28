@@ -1,4 +1,4 @@
-# TeamBuilder 0.6.0 — automatic team production
+# TeamBuilder 0.7.0 — automatic team production
 
 Pilot TeamBuilder is an offline hotfolder application. Set up a job once, start
 monitoring, and drop team folders into the incoming folder. Valid teams render
@@ -20,8 +20,10 @@ never changed, moved or deleted. This is a developer preview, not an event relea
    the matching capture workflow. Dennis confirmed this for the supplied sample
    batch. This describes player photographs, not template dimensions, and can be
    disabled for resized/cropped source workflows.
-4. **Start automatic processing** watches for stable folders, analyzes all included
-   sources, checks layout/template quality and exports valid teams automatically.
+4. **Save & start automatic processing** in Job setup starts watching immediately.
+   The main **Start automatic processing** button also starts or resumes watching.
+   The watcher waits for stable folders, analyzes all included
+   sources, validates templates and exports valid teams automatically.
    **Pause** prevents new work; a team already publishing/delivering finishes safely.
 
 The header displays the actual application package version. **Job ▾** holds saved
@@ -74,7 +76,7 @@ shows specific error text, not just a generic review flag. Reliable detections
 require no individual approval. A failed team displays every source in a labeled
 source overview instead of a blank preview; this is not a finished composite.
 
-The **Layout** sliders set job-wide row separation, inverted-V step, head spacing,
+The **Layout** sliders set job-wide row separation, inverted-V step, athlete overlap (15% initially),
 athlete size (25–300%), and visible **Team up/down** and **Team left/right** offsets
 in 1/8-inch steps. **Center guides** show the artwork horizontal center and the
 placement-area vertical center; guides never appear in exported images.
@@ -83,26 +85,37 @@ follows the selected CSV exactly; requested/manual rows are explicit per-team
 exceptions. Layout edits reuse geometry and thumbnail caches. Pending edits
 invalidate export until the new preview is ready.
 
-Athlete PNGs remain intact: the foreground hides lower bodies. There is no crop
+Fast transparency placement is the default. Athlete PNGs remain intact: the foreground hides lower bodies. There is no crop
 checkbox and athletes are not clipped to the placement rectangle. Only the outer
 24 × 8 artwork boundary limits rendered pixels, protecting the identification strip.
 
-Automatic sizing uses a three-quarter-body framing estimate and fits the team's
-width inside the placement box. Small teams stay naturally centered. Front-row
-head bottoms anchor 1/8 inch above the horizontal center guide, independently of
-scale. Multi-row teams start 10% smaller, then shrink further when necessary so
-all head tops remain inside the placement box. Horizontal spacing remains adjustable.
-Up/down offsets are independent; manual moves outside head/width limits need correction.
+The center athlete is the hero. Slots are assigned tallest-first, center-out, and
+painted outside-first so the hero appears in front. Each successive outward slot
+has a lower silhouette top. The center-to-edge cap distributes the slope across
+all slots, avoiding a flat outer section. Even rows share the two center heights,
+with the taller center painting last. Exact incoming pixel scales are retained;
+no athlete is individually enlarged, shrunk or stretched. Under the confirmed
+fixed-capture workflow, the silhouette's top coordinate supplies the height rank.
 
-These rules were visually informed by the supplied handmade composites. The 75%
-body estimate is a sizing target, not a crop or anatomical landmark guarantee;
-the foreground determines how much body is visible. Each team uses one global
-scale after source-resize normalization, preserving relative proportions. Job-wide
-controls apply consistently, while row count and available width can reduce each
-team's automatic fit. This replaces the earlier fixed 85% largest-team calibration.
-**Reset automatic fit** restores 100% sizing and selects the largest queued team.
-Existing jobs migrate once, retaining corrections, source metadata and completed
-production receipts. Completed output is never reprinted merely by opening a job.
+One standard pitch is based on typical silhouette width and the job's **Athlete
+overlap** percentage (15% initially). The first/largest processed team establishes
+the job's size reference. Multi-row teams start 10% smaller; the whole group may
+shrink to fit. All athletes in each team always share exactly the same scale.
+Groups center horizontally, with front-row top bands near the center guide as in
+the samples. Small teams remain centered instead of being stretched to full width.
+Full lower bodies extend behind the foreground. Normal offsets and size changes
+are automatically fitted; they no longer produce the misleading “after manual
+correction” hold. Huge conflicting individual moves have a specific **Reset
+placement** remedy. Reset clears the selected team's individual offsets and the
+job's horizontal/vertical offsets; other corrections and completed receipts remain.
+**Reset automatic fit** restores 100% size and recalibrates on the largest team.
+
+Existing jobs migrate once to fast transparency placement and a visible hero step,
+preserving corrections and delivery history. Placement is based on alpha geometry,
+not anatomical head detection: bows, hair, raised arms and stray extraction pixels
+can affect ordering. Use similar poses/clothing and the optional correction tools
+where needed. The foreground determines visible body length; there is no lower-body
+crop. Center guides never appear in finished JPEGs.
 
 Changes affect previews and queued work. Completed deliveries are not repeated
 when settings change. **Job → Rebuild selected team** deliberately creates a new
@@ -111,30 +124,47 @@ not an automatic retry of completed output.
 
 ## Automatic measurements and exceptions
 
-Under confirmed fixed camera/original-canvas geometry, reliable single-face
-positions rank stature against a COMMON capture-plane reference.
-**Relaxed automatic detection** is enabled by default: one face at confidence
-0.5 or higher is accepted, and a clipped hair-analysis window does not force
-manual review. Turn it off in Job setup for the previous strict 0.8 policy. An anatomical
-top estimate from the face excludes hair from height ranking. This is a relative
-ranking proxy, not a physical height measurement. Rendered athlete proportions
-remain unchanged and everyone shares the same capture scale. Changed canvas sizes,
-unknown resizing and missing/multiple/very-low-confidence faces remain exceptions. Their provenance and errors are recorded; no source is omitted.
-Held teams retry automatically when their corrections, job settings or template
-files change. Unchanged errors do not repeat detection on every poll. Completed
-team deliveries remain protected from repeats.
-An operator-corrected head box can supply a position-based height estimate in
-relaxed mode too; individual height-top/feet markers are optional refinements.
-The **Player PNGs keep original size** checkbox describes source photographs,
-not template dimensions. Missing/multiple faces, very low confidence, changed
-canvases and invalid sources still require correction rather than omission.
-Manual height ranks, exclusions, row/slot assignment and individual offsets
-remain available for recovery.
+Fast mode decodes each PNG once to get alpha bounds, a top-band center and a
+relative height rank. It never invokes Vision, requests a head box or rejects an
+athlete for face confidence. The small top band is a placement guide, not a claimed
+anatomical head measurement. Body overlap is intentional, so fast mode does not
+hold teams on speculative face-obstruction tests. It cannot certify face visibility
+or discover a multi-person source; use optional face mode when that verification
+is required. No sources are silently omitted.
 
-Face coverage is checked against actual foreground-athlete alpha at reduced
-resolution around the face, replacing conservative full-body-box overlap warnings.
-This remains a sampled visibility check; photographic quality needs native-Mac
-validation with the private test photographs before production use.
+Disable **Fast placement from transparency** in Job setup for the previous face-based
+workflow. Its single-face confidence threshold and sampled face-coverage checks
+remain available. The default relaxed face threshold is 0.5. Manual head corrections,
+height ranks, exclusions, row/slot assignment and offsets remain non-destructive.
+
+Invalid/duplicate PNGs, changed fixed-capture canvas geometry, missing/ambiguous
+templates and unavailable destinations still have concrete recovery messages.
+Held teams retry when their corrections, settings or templates change. Completed
+deliveries stay protected from repeats; intentional Rebuild creates a new version.
+
+## Performance
+
+Automatic production reuses its calculated layout and does not build a preview
+image on the processing worker. Selected teams still have previews in the UI.
+A bounded disposable **2-GiB local disk cache per worker** stores decoded RGBA
+silhouettes in original coordinates. It does not alter incoming PNGs. Final render
+verifies the current original PNG hash, memory-maps one cached athlete at a time,
+and resamples only artwork pixels. Cache eviction/unavailable temp storage falls
+back to verified original PNG loading. Cached and uncached JPEGs are byte-identical,
+including crash-recovery rerenders. The cache is removed when its worker closes.
+
+Preview assets are separately bounded to 64 MiB. Live edits reuse geometry and
+thumbnails. Source measurement, rendering and cache-hit timings appear in structured
+production logs. The 20-second copy-settle interval is separate from processing time.
+
+For a read-only local loading comparison after installing the package:
+
+```sh
+python scripts/benchmark_png_loading.py --team '/path/to/team' --limit 4
+```
+
+The baseline excludes face detection. Results depend on PNG size, storage and hardware;
+this comparison does not measure Apple Vision or other software.
 
 ## Transfers, output, recovery and delivery
 

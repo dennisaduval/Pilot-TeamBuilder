@@ -32,6 +32,7 @@ def analyze_team(manifest: TeamManifest, table: RowTable, detector,
     cache_hits = 0
     canvas = tuple(capture_canvas) if capture_canvas else None
     detection_seconds = 0.0
+    transparency = bool(manifest.settings.transparency_mode)
     declared = {e.path.resolve() for e in manifest.entries}
     all_paths = source_paths(manifest.source_folder)
     if any(p.is_symlink() for p in all_paths):
@@ -54,14 +55,24 @@ def analyze_team(manifest: TeamManifest, table: RowTable, detector,
         errors = record["issues"]
         try:
             tick = perf_counter()
-            measured = measurements.measure(e, detector, cache, refresh, min_confidence=min_confidence, relaxed_heads=relaxed_heads)
+            measured = measurements.measure(e, detector, cache, refresh, min_confidence=min_confidence, relaxed_heads=relaxed_heads, transparency=transparency)
             detection_seconds += perf_counter() - tick
             record.update(sha256=measured.sha256, image_size=measured.size,
                           body=asdict(measured.body), detection_method=measured.method,
                           faces=[asdict(f) for f in measured.faces], cache_hit=measured.cache_hit)
             cache_hits += int(measured.cache_hit)
             errors.extend(measured.issues)
-            if retained_capture and e.relative_height is None:
+            if transparency:
+                canvas = canvas or measured.size
+                if retained_capture and measured.size != canvas:
+                    errors.append("PNG canvas differs from the saved camera setup. Verify original size or choose a separate job.")
+                if not retained_capture and e.relative_height is None:
+                    errors.append("Confirm original-size Player PNGs in Job setup, or supply a manual height order.")
+                e = replace(e, source_scale=1.0,
+                            relative_height=e.relative_height if e.relative_height is not None else measured.size[1] - measured.head.top,
+                            geometry_id=e.geometry_id or "job-fixed-alpha",
+                            provenance="Incoming pixel scale preserved. Silhouette top ranks athletes under the job's consistent capture setup.")
+            elif retained_capture and e.relative_height is None:
                 canvas = canvas or measured.size
                 if measured.size != canvas:
                     errors.append("Canvas differs from this job's fixed capture setup; verify cropping/resizing.")
@@ -118,5 +129,6 @@ def analyze_team(manifest: TeamManifest, table: RowTable, detector,
               "settings": asdict(manifest.settings), "corrections": asdict(manifest.corrections),
               "layout": asdict(layout) if layout else None,
               "timings": {"source_measurement_seconds": detection_seconds,
-                          "total_seconds": perf_counter() - started}, "cache_hits": cache_hits, "capture_canvas": canvas}
+                          "total_seconds": perf_counter() - started}, "cache_hits": cache_hits, "capture_canvas": canvas,
+              "placement_method": "transparency" if transparency else "face"}
     return TeamAnalysis(report, layout, sources, hashes)

@@ -13,7 +13,7 @@ from PIL import Image, ImageOps
 from .identification import JobProfile, draw_right_footer
 from .measurements import MeasurementCache
 from .model import ART_SIZE, FINAL_SIZE, Layout
-from .sources import load_png
+from .sources import load_png, render_source_box
 
 
 def discover_templates(root: Path) -> tuple[Path, Path]:
@@ -111,10 +111,29 @@ def composite_subject(canvas, image, position, clip=None):
             canvas.alpha_composite(part, (left, top))
 
 
+def composite_scaled_subject(canvas, image, bounds, scale, x, y, clip=None):
+    """Resample only the part reaching the artwork; keep original PNGs intact."""
+    width, height = max(1, round(bounds.width * scale)), max(1, round(bounds.height * scale))
+    px, py = round(x + bounds.left * scale), round(y + bounds.top * scale)
+    left = max(0, px, round(clip.left) if clip else 0)
+    top = max(0, py, round(clip.top) if clip else 0)
+    right = min(canvas.width, px + width, round(clip.right) if clip else canvas.width)
+    bottom = min(canvas.height, py + height, round(clip.bottom) if clip else canvas.height)
+    if right <= left or bottom <= top:
+        return
+    box = (bounds.left + (left - px) * bounds.width / width,
+           bounds.top + (top - py) * bounds.height / height,
+           bounds.left + (right - px) * bounds.width / width,
+           bounds.top + (bottom - py) * bounds.height / height)
+    with closing(image.resize((right - left, bottom - top), Image.Resampling.LANCZOS, box=box)) as region:
+        with closing(region.convert("RGBA")) as rgba:
+            canvas.alpha_composite(rgba, (left, top))
+
+
 def render(layout: Layout, sources: dict[str, Path], background: Path, foreground: Path,
            team_name: str, destination: Path, cache: TemplateCache | None = None,
            font: str = "", expected_hashes: dict[str, str] | None = None,
-           expected_templates: dict[str, tuple] | None = None, before_publish=None) -> dict:
+           expected_templates: dict[str, tuple] | None = None, before_publish=None, source_cache=None) -> dict:
     """Render one draft/final artifact. Issues must block routing, not preview.
 
     Exclusive publication refuses overwrites. This milestone has no printer or
@@ -132,6 +151,7 @@ def render(layout: Layout, sources: dict[str, Path], background: Path, foregroun
     cache = cache or TemplateCache()
     start = perf_counter()
     timings = {}
+    initial_cache_hits = source_cache.hits if source_cache else 0
     temporary = None
     def verify_templates():
         if expected_templates is not None:
@@ -146,25 +166,32 @@ def render(layout: Layout, sources: dict[str, Path], background: Path, foregroun
             canvas.paste(bg, (0, 0))
             last = perf_counter()
             for p in layout.placements:
-                with load_png(sources[p.athlete_id]) as source:
+                expected = expected_hashes.get(p.athlete_id) if expected_hashes else None
+                loader = source_cache.load(sources[p.athlete_id], expected) if source_cache else load_png(sources[p.athlete_id])
+                with loader as source:
                     image = source.image
                     if expected_hashes is not None and source.sha256 != expected_hashes[p.athlete_id]:
                         raise ValueError(f"{p.athlete_id}: source content changed since analysis; rebuild.")
-                    if image.size != p.source_size:
+                    if source.size != p.source_size:
                         raise ValueError(f"{p.athlete_id}: source dimensions changed; rebuild layout.")
                     if not p.source_body.contains(source.body, tolerance=1):
                         raise ValueError(f"{p.athlete_id}: alpha bounds differ from layout; rebuild geometry.")
                     bounds = p.source_visible or source.body
                     if not source.body.contains(bounds):
                         raise ValueError("Visible crop exceeds the original source bounds.")
-                    size = max(1, round(bounds.width * p.scale)), max(1, round(bounds.height * p.scale))
-                    # One athlete at a time bounds memory independently of team size.
-                    # Crop empty canvas BEFORE resizing. A tiny cutout in a huge
-                    # transparent PNG must never allocate a huge scaled canvas.
-                    with closing(image.crop((bounds.left, bounds.top, bounds.right, bounds.bottom))) as crop:
-                        with closing(crop.convert("RGBA")) as rgba, closing(rgba.resize(size, Image.Resampling.LANCZOS)) as resized:
-                            composite_subject(canvas, resized, (round(p.x + bounds.left * p.scale),
-                                                               round(p.y + bounds.top * p.scale)), layout.clip)
+                    cropped = None
+                    ox, oy = source.origin
+                    if source.original_size is None:
+                        box = render_source_box(source.body, source.size)
+                        cropped = image.crop(box)
+                        image, (ox, oy) = cropped, box[:2]
+                    try:
+                        from .model import Rect
+                        local_bounds = Rect(bounds.left - ox, bounds.top - oy, bounds.right - ox, bounds.bottom - oy)
+                        composite_scaled_subject(canvas, image, local_bounds, p.scale, p.x + ox * p.scale, p.y + oy * p.scale, layout.clip)
+                    finally:
+                        if cropped is not None:
+                            cropped.close()
             canvas.alpha_composite(fg, (0, 0))
             timings["composite_seconds"] = perf_counter() - last
             draw_right_footer(canvas, team_name, JobProfile(footer_font=font))
@@ -188,6 +215,7 @@ def render(layout: Layout, sources: dict[str, Path], background: Path, foregroun
         os.link(temporary, destination)
         timings["total_seconds"] = perf_counter() - start
         return {"size": FINAL_SIZE, "ppi": 300, "timings": timings,
+                "source_cache_hits": source_cache.hits - initial_cache_hits if source_cache else 0,
                 "review_required": bool(layout.issues), "issues": layout.issues}
     finally:
         if temporary is not None:

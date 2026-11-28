@@ -62,7 +62,7 @@ class ProductionTests(unittest.TestCase):
         with Image.open(status["output"]) as image:
             self.assertEqual(image.size, (7800, 2400))
             self.assertEqual(image.info["dpi"], (300, 300))
-        self.assertIsNone(result["job"]["base_scale"])
+        self.assertIsNotNone(result["job"]["base_scale"])
         self.assertEqual(result["job"]["job_settings"]["foreground_framing"], 1)
         self.assertEqual(result["job"]["capture_canvas"], (400, 1000))
         self.assertEqual(before, {p.name: file_hash(p) for p in self.folder.glob("*.png")})
@@ -138,9 +138,9 @@ class ProductionTests(unittest.TestCase):
     def test_mid_render_folder_change_blocks_publication_and_routing(self):
         self.engine.tick(self.job, now=0)
         original = self.engine.engine.export
-        def changed(job, signature, destination, before_publish=None):
+        def changed(job, signature, destination, before_publish=None, prepared_view=None):
             (self.folder / "arriving.txt").write_text("copy not done")
-            return original(job, signature, destination, before_publish=before_publish)
+            return original(job, signature, destination, before_publish=before_publish, prepared_view=prepared_view)
         with patch.object(self.engine.engine, "export", side_effect=changed):
             result = self.engine.tick(self.job, now=3)
         self.assertEqual(result["statuses"][str(self.folder)]["state"], "Waiting for copying to finish")
@@ -202,7 +202,7 @@ class ProductionTests(unittest.TestCase):
         write_sources(self.incoming / "Small", athletes(1))
         from pilot_teambuilder.production import merge_inventory
         merge_inventory(job, self.incoming / "Small")
-        job["job_settings"] = {"group_scale": 1.1, "foreground_framing": 0}
+        job["job_settings"] = {"group_scale": 1.1, "foreground_framing": 0, "transparency_mode": 0}
         job["base_scale"] = 1.8
         views = []
         try:
@@ -219,6 +219,7 @@ class ProductionTests(unittest.TestCase):
                 view.close()
 
     def test_uncertain_detection_shows_all_sources_but_never_auto_exports(self):
+        self.job["job_settings"]["transparency_mode"] = 0
         self.engine.engine.detector.detect = lambda image: ()
         result = self.run_team()
         self.assertEqual(result["statuses"][str(self.folder)]["state"], "Needs attention")
@@ -241,7 +242,7 @@ class ProductionTests(unittest.TestCase):
         self.job["capture_canvas"] = (4000, 6000)
         result = self.run_team()
         self.assertEqual(result["statuses"][str(self.folder)]["state"], "Needs attention")
-        self.assertIn("Canvas differs", result["statuses"][str(self.folder)]["message"])
+        self.assertIn("canvas differs", result["statuses"][str(self.folder)]["message"])
 
     def test_job_settings_are_shared_and_routes_cannot_point_into_incoming(self):
         session = ReviewSession(self.job)
@@ -303,7 +304,7 @@ class ProductionTests(unittest.TestCase):
             other.close()
 
     def test_initial_enlargement_calibrates_common_reference_before_validation(self):
-        self.job["job_settings"] = {"group_scale": 1.1, "foreground_framing": 0}
+        self.job["job_settings"] = {"group_scale": 1.1, "foreground_framing": 0, "transparency_mode": 0}
         result = self.run_team()
         self.assertEqual(result["statuses"][str(self.folder)]["state"], "Completed")
 

@@ -594,3 +594,48 @@ all 1–45 CSV sizes plus 64/100, single/two-row anchors, width use, resized sou
 normalization, intact leg canaries, foreground masking, and legacy job migration.
 Actual photographic results still require a local run with source PNGs/templates;
 flattened samples alone cannot validate detection or final face visibility.
+
+
+## 2026-11-27 — 0.7.0.dev0 fast silhouette production
+
+Operator feedback: inverted-V was too subtle/flat outside the cap; approximate head
+boxes and offset boundary holds blocked automatic output. Speed takes priority over
+anatomical head detection for this consistent original-size capture workflow.
+
+Default desktop jobs now use transparency_mode=1, alpha>=16 top bands, original
+incoming pixel scales, a common team scale, and top-coordinate ranking. No Vision
+identity/detection or sampled face-obstruction gate runs on this path. Center-out
+assignment/paint order keeps the hero in front; alpha tops descend at every outward
+slot, distributing the capped slope rather than flattening outer athletes. Overlap
+starts at 15% of representative silhouette width with an explicit percentage slider.
+Group fitting accounts for ordinary individual/job offsets; lower bodies remain
+intact behind the foreground. Pathological moves name Reset placement as the remedy.
+Fast mode cannot certify faces or detect multi-person sources. Face mode remains
+optional; fixed-capture/duplicate/source/template/delivery safeguards remain.
+
+The largest first automatic team establishes the shared reference scale. Job setup
+now saves AND starts the watcher. Pausing remains explicit. Held records retry after
+configuration changes; completed receipts still prevent duplicate rendering/printing.
+Version-3 migration resets the old reference and updates the default hero step once,
+retaining manual changes, file hashes and delivery state.
+
+Performance changes: geometry and UI thumbnails share one decode; preview edge is
+640 with a 64-MiB budget; automatic workers skip thumbnail/panorama construction and
+reuse the prepared layout for export. A disposable 2-GiB local raw-silhouette cache
+avoids the second PNG decode. Original bytes are hashed before using cached pixels.
+Rendering memory-maps one athlete at a time and resizes only the artwork intersection.
+The same integer source window is used for cached/direct resampling so recovery
+rerenders remain byte-identical. Cache misses/evictions fall back to originals.
+Render/measurement stage timings and cache-hit counts are recorded in receipts/logs.
+
+Private local measurements (Linux worker, not Apple Silicon production claims): four
+24-MP PNGs/96 MP total loaded in 4.87 s through the previous two-decode thumbnail path
+without any face detection, versus 2.94 s through the new shared-decode path (1.65x;
+single run with possible warm filesystem cache; preview edge changed 1000 to 640).
+Warm geometry was <1 ms. An 11-athlete real-source team produced zero holds; a later
+automatic run took 7.08 s for measurement/cache and 2.46 s to export, with 11 raw cache
+hits and 366 MiB disk use. Earlier uncached export was 12.66 s while regression tests
+were also running, so that comparison is illustrative, not a controlled speed ratio.
+The synthetic regression/CI results and packaged build are linked in PR #4. Customer
+photographs, private renders, source paths and contact sheets are not committed.
+Further native Mac/event throughput and template-specific visibility need validation.

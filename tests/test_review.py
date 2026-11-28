@@ -19,6 +19,7 @@ def review_job(folder, count=3):
     people = athletes(count)
     write_sources(folder / "Incoming/001_Team", people)
     job = new_job(folder / "Incoming")
+    job["job_settings"]["transparency_mode"] = 0
     for e, a in zip(job["teams"][0]["manifest"]["athletes"], people):
         e["manual_head"] = list(vars(a.head).values())
         e["capture"].update(

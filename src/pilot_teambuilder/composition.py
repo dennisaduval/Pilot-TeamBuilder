@@ -79,6 +79,9 @@ def compose(athletes: list[Athlete], table: RowTable,
             start += count
     # Work in common capture coordinates. Extraction resizing is undone before
     # applying ONE team scale; no per-athlete head-size normalization occurs.
+    if settings.transparency_mode:
+        from .silhouette_layout import compose_silhouettes
+        return compose_silhouettes(active, rows, counts, settings, corrections, fixed_scale)
     head_height = median(a.head.height / a.source_scale for a in active)
     typical_body = median(visible[a.id].height / a.source_scale for a in active)
     natural_scale = settings.height_in * PPI / (typical_body * (0.75 if framed else 1))

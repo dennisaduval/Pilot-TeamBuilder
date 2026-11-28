@@ -4,7 +4,7 @@
 
 Repository: [dennisaduval/Pilot-TeamBuilder](https://github.com/dennisaduval/Pilot-TeamBuilder).
 
-Version **0.6.0.dev0**, milestones TB-001 through TB-004. Includes an initial
+Version **0.7.0.dev0**, milestones TB-001 through TB-004. Includes an initial
 desktop review application, composition engine, manifest preflight and offline
 detection. Hotfolder processing and verified delivery are implemented; production field validation remains outstanding.
 
@@ -13,18 +13,22 @@ detection. Hotfolder processing and verified delivery are implemented; productio
 **Choose hotfolder → Job setup → Start automatic processing.** Team folders are
 team names; reliable teams render and deliver automatically without per-athlete
 approval. Saved job-wide settings include templates, color variants, the selected
-row CSV, common athlete size (up to 300%), placement and delivery locations.
+row CSV, common athlete size (up to 300%), overlap, placement and delivery locations.
 The visible header/window version identifies the actual installed build.
-Nested team folders are discovered recursively. Relaxed detection accepts ordinary
-moderate-confidence poses, while selected default templates provide an explicit
-fallback for missing color designs. Waist-up framing, visible up/down and left/right
-controls, and preview-only center guides support full-body captures in a torso design.
+Nested team folders are discovered recursively. The default fast path places athletes
+from the top of their transparency, keeps the exact incoming pixel proportions,
+and uses one scale for the whole team. No face model or head approval is required.
+Center heroes paint last; each outward position is lower. Athlete overlap starts
+at 15%, and ordinary offsets are fitted automatically rather than held for review.
+Selected defaults provide an explicit fallback for missing color templates.
 
-Under the confirmed fixed-camera/original-canvas workflow, face positions provide
-relative stature ranking while athletes retain one common capture scale. Missing,
-multiple or uncertain detections and color/template errors are exceptions. The
-large preview shows composites for valid teams and a labeled source overview for
-held teams. Recovery controls are available on demand.
+**Save & start automatic processing** starts watching immediately after valid job
+setup. A disposable 2-GiB local render cache avoids decoding PNGs twice during
+automatic processing; original file hashes are verified before using cached pixels.
+Final rendering remains full resolution and proportional. A visible **Reset placement**
+action restores a centered formation. Optional face-based placement remains in
+Job setup; changed canvas geometry, invalid sources and unsafe deliveries remain
+recoverable exceptions. The correction pane is available on demand.
 
 The watcher waits for stable folders, supports an explicit team.ready marker,
 checks sources before publication, tracks processing/delivery in SQLite, prevents

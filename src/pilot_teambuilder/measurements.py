@@ -25,17 +25,45 @@ class Measurement:
 class MeasurementCache:
     """Bounded geometry only. File version and detector identity invalidate it."""
 
-    def __init__(self, capacity=256):
+    def __init__(self, capacity=256, asset_sink=None):
         self.capacity = capacity
         self.entries = OrderedDict()
+        self.asset_sink = asset_sink
 
     @staticmethod
     def signature(path: Path):
         stat = path.stat()
         return (str(path.resolve()), stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns)
 
-    def measure(self, entry, detector, disk_cache, refresh=False, *, min_confidence=0.8, relaxed_heads=False):
+    def measure(self, entry, detector, disk_cache, refresh=False, *, min_confidence=0.8, relaxed_heads=False, transparency=False):
         signature = self.signature(entry.path)
+        if transparency:
+            key = (signature, "alpha-top-v1")
+            if not refresh and key in self.entries:
+                self.entries.move_to_end(key)
+                return replace(self.entries[key], cache_hit=True)
+            with load_png(entry.path) as source:
+                with source.image.getchannel("A") as alpha:
+                    with alpha.point([0] * 16 + [255] * 240) as solid:
+                        bounds = solid.getbbox() or tuple(vars(source.body).values())
+                        left, top, right, bottom = bounds
+                        height = max(1, (bottom - top) * 0.14)
+                        with solid.crop((left, top, right, min(bottom, int(top + height + 1)))) as band:
+                            upper = band.getbbox()
+                        hx = left + (upper[0] + upper[2]) / 2 if upper else (left + right) / 2
+                        half = min((right - left) / 2, height * 0.5)
+                        hx = min(max(hx, source.body.left + half), source.body.right - half)
+                        anchor = Rect(hx - half, top, hx + half, min(source.body.bottom, top + height))
+                result = Measurement(source.image.size, source.body, source.sha256, anchor,
+                                     method="alpha-top-v1")
+                if self.asset_sink:
+                    self.asset_sink(entry.path, source)
+                if self.signature(entry.path) != signature:
+                    raise ValueError("Source changed during PNG loading; waiting for copying to finish.")
+            self.entries[key] = result
+            while len(self.entries) > self.capacity:
+                self.entries.popitem(last=False)
+            return result
         # Resolve identity only for automatic measurements. Manual corrections
         # remain usable when the native helper is unavailable.
         identity = None

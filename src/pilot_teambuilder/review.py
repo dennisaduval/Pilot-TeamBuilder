@@ -37,7 +37,7 @@ def new_job(incoming: Path, name: str | None = None, *, allow_empty=False) -> di
     return {
         "schema_version": 1,
         "hotfolder_mode": True,
-        "framing_version": 2,
+        "framing_version": 3,
         "name": name or incoming.name,
         "incoming": str(incoming),
         "templates": str(incoming.parent / "Templates/Team"),
@@ -45,7 +45,8 @@ def new_job(incoming: Path, name: str | None = None, *, allow_empty=False) -> di
         "row_csv": "",
         "template_presets": {},
         "retained_capture": True,
-        "job_settings": {"crop_body_fraction": 1.0, "foreground_framing": 1.0},
+        "job_settings": {"crop_body_fraction": 1.0, "foreground_framing": 1.0,
+                         "transparency_mode": 1.0, "v_step_in": 0.125, "v_max_drop_in": 0.5},
         "relaxed_detection": True,
         "base_scale": None,
         "settle_seconds": 20,
@@ -230,7 +231,14 @@ def upgrade_job(job):
                 preset["foreground_framing"] = 1.0
     settings["crop_body_fraction"] = 1.0
     settings.setdefault("foreground_framing", 1.0)
-    result["framing_version"] = 2
+    if result.get("framing_version", 0) < 3:
+        settings["transparency_mode"] = 1.0
+        if settings.get("v_step_in", 0.025) == 0.025:
+            settings["v_step_in"] = 0.125
+        settings["v_max_drop_in"] = max(settings.get("v_max_drop_in", 0.25), 0.5)
+        result["base_scale"] = None
+    settings.setdefault("transparency_mode", 1.0)
+    result["framing_version"] = 3
     result.setdefault("relaxed_detection", True)
     return result
 

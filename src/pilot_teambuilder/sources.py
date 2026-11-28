@@ -1,7 +1,7 @@
 """Bounded, immutable PNG snapshots shared by analysis and final rendering."""
 
-from dataclasses import dataclass
 import hashlib
+from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
 
@@ -13,11 +13,23 @@ MAX_BYTES = 128 * 1024 * 1024
 MAX_PIXELS = 64_000_000
 
 
+def render_source_box(body, size):
+    """Canonical integer window, shared by direct and cached final rendering."""
+    return (max(0, round(body.left) - 32), max(0, round(body.top) - 32),
+            min(size[0], round(body.right) + 32), min(size[1], round(body.bottom) + 32))
+
+
 @dataclass
 class SourceImage:
     image: Image.Image
     sha256: str
     body: Rect
+    original_size: tuple[int, int] | None = None
+    origin: tuple[int, int] = (0, 0)
+
+    @property
+    def size(self):
+        return self.original_size or self.image.size
 
     def __enter__(self):
         return self

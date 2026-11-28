@@ -71,6 +71,8 @@ class CompositionSettings:
     y_offset_in: float = 0.0
     crop_body_fraction: float = 1.0  # Deprecated saved-job field; never trims sources.
     foreground_framing: float = 0.0  # 1 selects production head-anchored framing.
+    transparency_mode: float = 0.0  # 1 uses alpha placement; no face detector.
+    overlap_fraction: float = 0.15
 
     def validate(self):
         if not all(isfinite(v) for v in vars(self).values()):
@@ -83,6 +85,10 @@ class CompositionSettings:
             raise ValueError("Visible body fraction must be between 0.25 and 1.")
         if self.foreground_framing not in (0, 1):
             raise ValueError("Foreground framing must be 0 or 1.")
+        if self.transparency_mode not in (0, 1):
+            raise ValueError("Transparency placement must be 0 or 1.")
+        if not 0 <= self.overlap_fraction <= 0.6:
+            raise ValueError("Athlete overlap must be between 0% and 60%.")
         if not Rect(0, 0, *ART_SIZE).contains(self.area):
             raise ValueError("Athlete placement area must be inside the 24 × 8 artwork.")
 
@@ -123,6 +129,7 @@ class Layout:
     issues: tuple[str, ...]
     schema_version: int = 1
     clip: Rect | None = None
+    reference_scale: float | None = None
 
 
 class ReviewRequired(ValueError):

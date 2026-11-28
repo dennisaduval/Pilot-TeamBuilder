@@ -317,7 +317,7 @@ class ProductionEngine:
                 else:
                     current = deepcopy(job)
                     current["selected_team"] = job["teams"].index(team)
-                    view = self.engine.view(current, None)
+                    view = self.engine.view(current, None, preview=False)
                     try:
                         if view.analysis.layout is None or not view.templates_ready:
                             problems = ([view.template_issue] if view.template_issue else []) + view.analysis.report["issues"]
@@ -325,14 +325,20 @@ class ProductionEngine:
                             raise ValueError("; ".join(problems[:4]) or "This team requires attention.")
                         if not job.get("capture_canvas"):
                             job["capture_canvas"] = view.analysis.report.get("capture_canvas")
-                        if job.get("base_scale") is None and not job.get("job_settings", {}).get("foreground_framing"):
+                        if job.get("base_scale") is None and job.get("job_settings", {}).get("transparency_mode"):
+                            job["base_scale"] = view.analysis.layout.reference_scale
+                            current["base_scale"] = job["base_scale"]
+                            current["capture_canvas"] = job.get("capture_canvas")
+                            # Reference equals the scale used to compute this layout;
+                            # no second preview/detection pass is necessary.
+                        elif job.get("base_scale") is None and not job.get("job_settings", {}).get("foreground_framing"):
                             factor = current.get("job_settings", {}).get("group_scale", current["teams"][current["selected_team"]]["manifest"].get("settings", {}).get("group_scale", 1.0))
                             job["base_scale"] = view.analysis.layout.global_scale / factor * 0.85
                             job["capture_canvas"] = view.analysis.report.get("capture_canvas")
                             current["base_scale"] = job["base_scale"]
                             current["capture_canvas"] = job.get("capture_canvas")
                             view.close()
-                            view = self.engine.view(current, None)
+                            view = self.engine.view(current, None, preview=False)
                         if view.analysis.report["issues"]:
                             raise ValueError("; ".join(view.analysis.report["issues"][:4]))
                         if snapshot(folder) != version or (cancel and cancel.is_set()):
@@ -345,16 +351,18 @@ class ProductionEngine:
                         if output.exists():
                             recovery = self.root / "recovery" / (key + "-" + uuid4().hex + ".jpg")
                             try:
-                                self.engine.export(current, view.review_signature, recovery, before_publish=guard_publication)
+                                rendered = self.engine.export(current, view.review_signature, recovery, before_publish=guard_publication, prepared_view=view)
                                 if file_hash(recovery) != file_hash(output):
                                     raise ValueError("Interrupted output differs from the recovered render; no overwrite was attempted.")
                             finally:
                                 recovery.unlink(missing_ok=True)
                         else:
-                            self.engine.export(current, view.review_signature, output, before_publish=guard_publication)
+                            rendered = self.engine.export(current, view.review_signature, output, before_publish=guard_publication, prepared_view=view)
                         guard_publication()
                         receipt = {"sha256": file_hash(output), "base_scale": job.get("base_scale"),
-                                   "capture_canvas": job.get("capture_canvas"), "signature": view.review_signature}
+                                   "capture_canvas": job.get("capture_canvas"), "signature": view.review_signature,
+                                   "measurement_timings": view.analysis.report["timings"],
+                                   "render_timings": rendered["timings"], "source_cache_hits": rendered.get("source_cache_hits", 0)}
                         self._state(key, "routing", output, receipt)
                     finally:
                         view.close()
@@ -362,7 +370,9 @@ class ProductionEngine:
                     self._deliver(key, output, destination, receipt["sha256"])
                 self._state(key, "completed", output, receipt)
                 statuses[str(folder.resolve())] = {"state": "Completed", "output": str(output)}
-                self._log("completed", team=folder.name, output=str(output))
+                self._log("completed", team=folder.name, output=str(output),
+                          measurement_timings=receipt.get("measurement_timings"),
+                          render_timings=receipt.get("render_timings"), source_cache_hits=receipt.get("source_cache_hits", 0))
             except SourceNotSettled as error:
                 self._state(key, "interrupted", output, message=str(error))
                 statuses[str(folder.resolve())] = {"state": "Waiting for copying to finish", "message": str(error)}

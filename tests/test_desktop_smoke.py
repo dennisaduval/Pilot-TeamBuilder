@@ -57,7 +57,7 @@ class DesktopSmokeTests(unittest.TestCase):
         import tkinter as tk
 
         from PIL import Image, ImageGrab
-        from test_operator_workflow import ModerateDetector
+        from test_fast_placement import NoDetector
 
         from pilot_teambuilder import __version__
         from pilot_teambuilder.app import TeamBuilderApp
@@ -97,11 +97,19 @@ class DesktopSmokeTests(unittest.TestCase):
                 self.assertIn(__version__, root.title())
                 self.assertEqual(len(app.main.panes()), 2)  # Correction pane hidden.
                 with patch("pilot_teambuilder.app.ProductionEngine",
-                           side_effect=lambda state: ProductionEngine(state, ModerateDetector())), patch(
+                           side_effect=lambda state: ProductionEngine(state, NoDetector())), patch(
                     "pilot_teambuilder.app.DesktopEngine",
-                    side_effect=lambda state: DesktopEngine(state, ModerateDetector()),
+                    side_effect=lambda state: DesktopEngine(state, NoDetector()),
                 ):
-                    app.toggle_monitor()
+                    app.job_setup()
+                    def descendants(widget):
+                        for child in widget.winfo_children():
+                            yield child
+                            yield from descendants(child)
+                    start = next(w for w in descendants(root)
+                                 if w.winfo_class() == "TButton" and w.cget("text") == "Save & start automatic processing")
+                    start.invoke()
+                    self.assertTrue(app.monitoring, app.status.get())
                     sources = write_sources(incoming / "Event/Division/Automatic Team", athletes(9))
                     for source in sources.values():
                         source.rename(source.with_stem(source.stem + "_Aqua"))
@@ -123,6 +131,7 @@ class DesktopSmokeTests(unittest.TestCase):
                 app.center_guides.set(True)
                 app._draw_panorama()
                 self.assertFalse(app.view.draft)
+                self.assertEqual(app.view.analysis.report["placement_method"], "transparency")
                 self.assertEqual(len(app.view.analysis.layout.placements), 9)
                 self.assertIn("1 complete", app.summary.get())
                 self.assertEqual(len(list((folder / "Upload").glob("*.jpg"))), 1)

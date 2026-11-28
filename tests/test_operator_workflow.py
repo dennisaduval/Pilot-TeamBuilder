@@ -41,6 +41,7 @@ class OperatorWorkflowTests(unittest.TestCase):
         self.folder = self.incoming / "Event/Division/Real Team"
         write_sources(self.folder, athletes(3))
         self.job = new_job(self.incoming)
+        self.job["job_settings"]["transparency_mode"] = 0
         self.templates = Path(self.job["templates"])
         self.templates.mkdir(parents=True)
         self.bg = self.templates / "Team Background_default.jpg"

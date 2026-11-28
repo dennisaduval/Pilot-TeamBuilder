@@ -115,13 +115,13 @@ class TeamBuilderApp:
         self.summary = tk.StringVar(root, "0 teams · 0 exported")
         self.details = tk.StringVar(root, "")
         self.athlete_status = tk.StringVar(
-            root, "Select an athlete to review their head and height anchors."
+            root, "Select an athlete only when a placement needs correction."
         )
         self.mode = tk.StringVar(root, "Head box")
         self.row_counts = tk.StringVar(root)
         self.target_row = tk.StringVar(root, "1")
         self.values = {
-            key: tk.StringVar(root, f"{value * (100 if key == 'group_scale' else 1):g}")
+            key: tk.StringVar(root, f"{value * (100 if key in ('group_scale', 'overlap_fraction') else 1):g}")
             for key, value in asdict(CompositionSettings()).items()
         }
         self.loading_form = False
@@ -376,8 +376,8 @@ class TeamBuilderApp:
         slider_grid.columnconfigure(1, weight=1, uniform="sliders")
         for index, (key, label, low, high, step, suffix) in enumerate((
             ("row_separation_heads", "Vertical row spacing", 0.5, 3.0, 0.125, " heads"),
-            ("v_step_in", "Inverted-V step", 0.0, 0.25, 0.025, " in"),
-            ("head_spacing_in", "Horizontal head spacing", 0.25, 2.0, 0.125, " in"),
+            ("v_step_in", "Hero step per athlete", 0.0, 0.25, 0.025, " in"),
+            ("overlap_fraction", "Athlete overlap", 0, 50, 1, "%"),
             ("group_scale", "Job athlete size", 25, 300, 1, "%"),
             ("y_offset_in", "Team up / down", -4, 4, 0.125, " in"),
             ("x_offset_in", "Team left / right", -4, 4, 0.125, " in"),
@@ -396,12 +396,13 @@ class TeamBuilderApp:
             slider.pack(side="left", fill="x", expand=True, padx=10)
         framing = ttk.Frame(page)
         framing.pack(fill="x", pady=(4, 0))
-        ttk.Label(framing, text="Automatic row sizing • foreground hides lower bodies", style="Sub.TLabel").pack(side="left")
+        ttk.Label(framing, text="Fast silhouette placement • foreground hides lower bodies", style="Sub.TLabel").pack(side="left")
         ttk.Checkbutton(framing, text="Center guides", variable=self.center_guides,
                         command=self._draw_panorama).pack(side="right")
         tools = ttk.Frame(page)
         tools.pack(fill="x", pady=(8, 0))
         ttk.Label(tools, text="Job-wide settings", style="Sub.TLabel").pack(side="left")
+        ttk.Button(tools, text="Reset placement", command=self._guard(self.reset_placement)).pack(side="right", padx=5)
         ttk.Button(tools, text="Reset automatic fit", command=self._guard(self.fit_largest)).pack(side="right", padx=5)
         ttk.Button(tools, text="Fix a detection / placement…", command=self.show_review).pack(side="right")
         self._refresh_readouts()
@@ -574,6 +575,16 @@ class TeamBuilderApp:
             page, textvariable=self.athlete_status, wraplength=275, justify="left"
         ).pack(anchor="w", pady=10)
 
+    def reset_placement(self):
+        if not self.session or not self.session.job["teams"]:
+            return
+        self.stop_monitor()
+        self.session.manifest.setdefault("corrections", {})["offsets_in"] = {}
+        self.session.settings({"x_offset_in": 0.0, "y_offset_in": 0.0})
+        self.session.touch()
+        self._load_team()
+        self._autosave()
+
     def fit_largest(self):
         if not self.session or not self.session.job["teams"]:
             return
@@ -672,13 +683,14 @@ class TeamBuilderApp:
         retained = tk.BooleanVar(dialog, job.get("retained_capture", True))
         marker = tk.BooleanVar(dialog, job.get("require_ready", False))
         relaxed = tk.BooleanVar(dialog, job.get("relaxed_detection", True))
+        fast = tk.BooleanVar(dialog, bool(job.get("job_settings", {}).get("transparency_mode", 1)))
         quiet = tk.StringVar(dialog, str(job.get("settle_seconds", 20)))
         ttk.Checkbutton(page, text="Player PNGs keep their original size (automatic height sorting; not template dimensions)", variable=retained).grid(row=10, column=0, columnspan=3, sticky="w", pady=4)
-        ttk.Checkbutton(page, text="Relaxed automatic detection (accept tilted heads and moderate confidence)", variable=relaxed).grid(row=11, column=0, columnspan=3, sticky="w", pady=4)
+        ttk.Checkbutton(page, text="Fast placement from transparency (recommended; skips face detection)", variable=fast).grid(row=11, column=0, columnspan=3, sticky="w", pady=4)
         ttk.Checkbutton(page, text="Require team.ready file after copying (strongest transfer protection)", variable=marker).grid(row=12, column=0, columnspan=3, sticky="w", pady=4)
         ttk.Label(page, text="Wait after last folder change (seconds)").grid(row=13, column=0, sticky="w")
         ttk.Spinbox(page, textvariable=quiet, from_=2, to=3600, increment=1, width=8).grid(row=13, column=1, sticky="w", padx=10)
-        ttk.Label(page, text="Athlete size, spacing and placement are shared across this job. A team that cannot fit is held for attention; it is never silently resized.", style="Sub.TLabel", wraplength=750).grid(row=14, column=0, columnspan=3, sticky="w", pady=8)
+        ttk.Label(page, text="Athlete size and overlap spacing are shared across the job. Teams center and fit automatically, with one common scale for every athlete. Start automatic processing to save and route finished panoramas.", style="Sub.TLabel", wraplength=750).grid(row=14, column=0, columnspan=3, sticky="w", pady=8)
         ttk.Label(page, textvariable=feedback, foreground="#92400E", wraplength=750).grid(row=15, column=0, columnspan=3, sticky="w")
         def save_setup():
             try:
@@ -690,6 +702,7 @@ class TeamBuilderApp:
                 candidate["routes"] = list(dict.fromkeys(variables[k].get().strip() for k in ("upload", "samples") if variables[k].get().strip()))
                 candidate["retained_capture"] = retained.get()
                 candidate["relaxed_detection"] = relaxed.get()
+                candidate.setdefault("job_settings", {})["transparency_mode"] = float(fast.get())
                 candidate["require_ready"] = marker.get()
                 candidate["settle_seconds"] = float(quiet.get())
                 from .rows import RowTable
@@ -719,12 +732,13 @@ class TeamBuilderApp:
                 self._update_setup_summary()
                 dialog.destroy()
                 self.request_view()
+                self.toggle_monitor()
             except (ValueError, OSError) as error:
                 feedback.set(str(error))
         buttons = ttk.Frame(page)
         buttons.grid(row=16, column=0, columnspan=3, sticky="e", pady=(12, 0))
         ttk.Button(buttons, text="Cancel", command=dialog.destroy).pack(side="left", padx=8)
-        ttk.Button(buttons, text="Save job setup", style="Primary.TButton", command=save_setup).pack(side="left")
+        ttk.Button(buttons, text="Save & start automatic processing", style="Primary.TButton", command=save_setup).pack(side="left")
         page.columnconfigure(1, weight=1)
         dialog.grab_set()
 
@@ -1054,7 +1068,7 @@ class TeamBuilderApp:
         self.loading_form = True
         try:
             for key, var in self.values.items():
-                var.set(f"{values[key] * (100 if key == 'group_scale' else 1):g}")
+                var.set(f"{values[key] * (100 if key in ('group_scale', 'overlap_fraction') else 1):g}")
             self._refresh_readouts()
             self._sync_rows()
         finally:
@@ -1120,7 +1134,7 @@ class TeamBuilderApp:
     def apply_settings(self):
         if self.session:
             values = {
-                k: float(v.get()) / (100 if k == "group_scale" else 1)
+                k: float(v.get()) / (100 if k in ("group_scale", "overlap_fraction") else 1)
                 for k, v in self.values.items()
             }
             self.session.settings(values)
@@ -1342,7 +1356,7 @@ class TeamBuilderApp:
             label = (
                 "Excluded"
                 if r["status"] == "excluded"
-                else (r["issues"][0] if r["issues"] else "Automatic detection OK")
+                else (r["issues"][0] if r["issues"] else ("Transparency ready" if r.get("detection_method") == "alpha-top-v1" else "Automatic detection OK"))
             )
             self.athletes.insert(
                 "",

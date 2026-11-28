@@ -16,6 +16,7 @@ from .detection_cache import DetectionCache
 from .identification import JobProfile, draw_right_footer
 from .manifests import manifest_from_data
 from .measurements import MeasurementCache
+from .render_sources import RenderSourceCache
 from .rendering import TemplateCache, composite_subject, render
 from .review import fingerprint, requested_distribution, upgrade_job
 from .rows import RowTable
@@ -40,24 +41,27 @@ class AssetCache:
         self.bytes = 0
         self.decodes = 0
 
+    def prime(self, path, source):
+        key = MeasurementCache.signature(path)
+        if key in self.items:
+            return
+        small = source.image.convert("RGBA")
+        edge = min(640, int((self.budget / 4) ** 0.5))
+        small.thumbnail((edge, edge), Image.Resampling.LANCZOS, reducing_gap=3)
+        size = small.width * small.height * 4
+        while self.items and self.bytes + size > self.budget:
+            _, old = self.items.popitem(last=False)
+            self.bytes -= old.image.width * old.image.height * 4
+            old.image.close()
+        self.items[key] = PreviewAsset(small, source.image.size, source.body, source.sha256)
+        self.bytes += size
+        self.decodes += 1
+
     def get(self, path, expected_hash=None):
         key = MeasurementCache.signature(path)
         if key not in self.items:
             with load_png(path) as source:
-                small = source.image.convert("RGBA")
-                edge = min(1000, int((self.budget / 4) ** 0.5))
-                small.thumbnail((edge, edge), Image.Resampling.LANCZOS)
-                asset = PreviewAsset(
-                    small, source.image.size, source.body, source.sha256
-                )
-            self.decodes += 1
-            size = small.width * small.height * 4
-            while self.items and self.bytes + size > self.budget:
-                _, old = self.items.popitem(last=False)
-                self.bytes -= old.image.width * old.image.height * 4
-                old.image.close()
-            self.items[key] = asset
-            self.bytes += size
+                self.prime(path, source)
         self.items.move_to_end(key)
         asset = self.items[key]
         if expected_hash is not None and asset.sha256 != expected_hash:
@@ -82,6 +86,8 @@ class ViewResult:
     review_signature: str
     template_names: str = ""
     draft: bool = False
+    template_versions: dict | None = None
+    configuration_signature: str = ""
 
     def close(self):
         for image in (self.panorama, self.portrait):
@@ -93,16 +99,26 @@ class DesktopEngine:
     def __init__(self, cache_path: Path, detector=None):
         self.disk = DetectionCache(cache_path)
         self.detector = detector or VisionDetector()
-        self.measurements = MeasurementCache()
         self.assets = AssetCache()
+        self.measurements = MeasurementCache(asset_sink=self.assets.prime)
         self.templates = TemplateCache()
+        self.render_sources = RenderSourceCache()
 
     def close(self):
         self.assets.close()
         self.templates.close()
+        self.render_sources.close()
         self.disk.db.close()
 
-    def view(self, job: dict, selected_id: str | None, refresh=False):
+    @staticmethod
+    def configuration_signature(job):
+        team = job["teams"][job["selected_team"]]
+        row_csv = job.get("row_csv")
+        return fingerprint({"team": team, "settings": job.get("job_settings"),
+                            "templates": [job.get(k) for k in ("templates", "background", "foreground")],
+                            "csv": MeasurementCache.signature(Path(row_csv)) if row_csv else None})
+
+    def view(self, job: dict, selected_id: str | None, refresh=False, *, preview=True):
         job = upgrade_job(job)
         team = job["teams"][job["selected_team"]]
         data = dict(team["manifest"])
@@ -117,13 +133,19 @@ class DesktopEngine:
         count = sum(not e.excluded for e in manifest.entries)
         if team.get("requested_rows") is not None and count:
             table = RowTable({count: requested_distribution(count, team["requested_rows"], ())})
-        result = analyze_team(
-            manifest, table, self.detector, self.disk, refresh, self.measurements,
-            retained_capture=job.get("retained_capture", True),
-            capture_canvas=job.get("capture_canvas"), fixed_scale=job.get("base_scale"),
-            min_confidence=0.5 if job.get("relaxed_detection", True) else 0.8,
-            relaxed_heads=job.get("relaxed_detection", True),
-        )
+        sink = self.measurements.asset_sink
+        if not preview and manifest.settings.transparency_mode:
+            self.measurements.asset_sink = self.render_sources.prime
+        try:
+            result = analyze_team(
+                manifest, table, self.detector, self.disk, refresh, self.measurements,
+                retained_capture=job.get("retained_capture", True),
+                capture_canvas=job.get("capture_canvas"), fixed_scale=job.get("base_scale"),
+                min_confidence=0.5 if job.get("relaxed_detection", True) else 0.8,
+                relaxed_heads=job.get("relaxed_detection", True),
+            )
+        finally:
+            self.measurements.asset_sink = sink
         for record in result.report["athletes"]:
             expected = team.get("review_hashes", {}).get(record["id"])
             if expected and record["status"] != "excluded" and record.get("sha256") != expected:
@@ -133,7 +155,7 @@ class DesktopEngine:
                 result.report["layout"] = None
                 result.report["status"] = "review"
                 result.report["issues"].append("A corrected source changed; automatic processing is held.")
-        if result.layout is not None:
+        if result.layout is not None and not manifest.settings.transparency_mode:
             self._visibility(result)
         template_names = ""
         template_issue = ""
@@ -155,7 +177,7 @@ class DesktopEngine:
         except (OSError, ValueError) as error:
             template_issue = str(error)
         panorama = None
-        if result.layout is not None:
+        if result.layout is not None and preview:
             panorama = Image.new("RGBA", (1560, 480), "#0B1F3A")
             try:
                 if layers:
@@ -195,7 +217,7 @@ class DesktopEngine:
                 panorama.close()
                 raise
         draft = result.layout is None
-        if draft:
+        if draft and preview:
             panorama = self._source_sheet(manifest, layers)
         portrait, portrait_size = None, None
         if selected_id:
@@ -223,6 +245,8 @@ class DesktopEngine:
             signature,
             template_names,
             draft,
+            {str(p): version for p, version in zip((bg, fg), template_versions)} if template_ready else {},
+            self.configuration_signature(job),
         )
 
     def _source_sheet(self, manifest, layers):
@@ -247,7 +271,7 @@ class DesktopEngine:
         if layers:
             canvas.alpha_composite(layers[1])
         draw.rectangle((0, 0, 1440, 23), fill="#0B1F3A")
-        draw.text((12, 5), "SOURCE OVERVIEW — detection needs attention; not a finished team layout", fill="white")
+        draw.text((12, 5), "SOURCE OVERVIEW — fix the listed source issue to build this team", fill="white")
         draw_right_footer(canvas, manifest.team_name, JobProfile())
         return canvas
 
@@ -290,11 +314,13 @@ class DesktopEngine:
         result.report["layout"] = asdict(result.layout)
         result.report["status"] = "review" if issues else "ready"
 
-    def export(self, job: dict, expected_signature: str, destination: Path, before_publish=None):
+    def export(self, job: dict, expected_signature: str, destination: Path, before_publish=None, prepared_view=None):
         # Fresh source preflight and final source hash verification happen on this
         # worker. UI edits are locked until this deliberate export finishes.
-        view = self.view(job, None)
+        view = prepared_view or self.view(job, None)
         try:
+            if prepared_view is not None and self.configuration_signature(upgrade_job(job)) != view.configuration_signature:
+                raise ValueError("Job settings changed after placement; rebuild before exporting.")
             if view.analysis.layout is None or not view.templates_ready:
                 raise ValueError(
                     "Resolve source review issues and choose valid templates before exporting."
@@ -319,14 +345,15 @@ class DesktopEngine:
                 fg,
                 team["manifest"]["team_name"],
                 destination,
+                cache=self.templates,
+                source_cache=self.render_sources,
                 before_publish=before_publish,
                 expected_hashes=view.analysis.hashes,
-                expected_templates={
-                    str(p): MeasurementCache.signature(p) for p in (bg, fg)
-                },
+                expected_templates=view.template_versions,
             )
         finally:
-            view.close()
+            if prepared_view is None:
+                view.close()
 
 
 class LatestWorker:

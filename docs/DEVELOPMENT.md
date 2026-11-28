@@ -726,3 +726,9 @@ pending operator clarification. Destination publication still requires atomic ha
 links. Legacy local-only recovery may use current settings when no original master
 copy exists; a notice states that prior deliveries were not resent. Original athlete
 PNGs remain untouched. Source archival is still future work.
+
+0.8.1 GUI follow-up: a background inventory result could reload slider variables
+before their debounced change committed. Inventory application now flushes pending
+edits first, and slider movement immediately invalidates older preview tokens. The
+existing real GUI defaults-inheritance test covers this race. Re-selection assertions
+compare saved semantic state while permitting new filesystem-identity metadata.

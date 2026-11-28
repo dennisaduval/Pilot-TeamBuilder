@@ -46,7 +46,9 @@ class DesktopSmokeTests(unittest.TestCase):
                     saved = app.session.snapshot()
                     app.choose_team_folder()
                     self.assertEqual(len(app.session.job["teams"]), 1)
-                    self.assertEqual(app.session.team, saved["teams"][0])
+                    # Re-scans add file identities; non-destructive edits stay intact.
+                    for key in ("manifest", "anchors", "templates", "exports"):
+                        self.assertEqual(app.session.team[key], saved["teams"][0][key])
                     self.assertFalse(app.session.dirty)  # Re-selection now auto-saves the retained edits.
             finally:
                 if app.session:

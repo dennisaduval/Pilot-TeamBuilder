@@ -438,6 +438,7 @@ class TeamBuilderApp:
         self._refresh_readouts()
         if not self.session:
             return
+        self.token += 1  # Pending edits invalidate in-flight preview results immediately.
         if self.live_timer is not None:
             self.root.after_cancel(self.live_timer)
         self.export_button.state(["disabled"])
@@ -891,6 +892,7 @@ class TeamBuilderApp:
                 if error:
                     self.status.set("Folder check: " + error)
                 elif result and not self.exporting:
+                    self._flush_live()  # Commit pending sliders before a metadata refresh reloads the form.
                     latest = apply_inventory(self.session.job, result)
                     self._accept_job_update(latest)
                     if self.inventory_refresh_preview and latest["teams"]:

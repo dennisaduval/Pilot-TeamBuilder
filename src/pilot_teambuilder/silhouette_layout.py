@@ -10,9 +10,11 @@ def compose_silhouettes(active, rows, counts, settings, corrections, fixed_scale
     from .composition import transform
 
     area = settings.area
-    reference = fixed_scale if fixed_scale is not None else area.height / (median(a.body.height for a in active) * 0.75)
-    if not isfinite(reference) or reference <= 0:
+    if fixed_scale is not None and (not isfinite(fixed_scale) or fixed_scale <= 0):
         raise ValueError("Job size must be positive and finite. Reset automatic fit.")
+    # The preview sets STYLE, not a permanent source-pixel scale. Re-evaluate
+    # framing from this team's front row so later teams can grow as well as shrink.
+    reference = area.height / (max(a.body.height for a in rows[-1]) * 0.75)
     desired = reference * settings.group_scale * (0.9 if len(rows) > 1 else 1)
     # A common pitch preserves natural overlap: 15% at the default setting.
     pitch = median(a.body.width for a in active) * (1 - settings.overlap_fraction)
@@ -42,17 +44,39 @@ def compose_silhouettes(active, rows, counts, settings, corrections, fixed_scale
             result.append((a, ri, slot, px, py, transform(a.body, scale, px, py), transform(a.head, scale, px, py)))
         return result
 
-    scale = desired
-    # Fit after individual moves. Inch-valued offsets remain inch-valued. A
-    # pathological move can be reset; ordinary moves never hold an entire team.
-    for _ in range(12):
-        points = placed(scale)
-        width = max(p[5].right for p in points) - min(p[5].left for p in points)
-        head_height = max(p[6].bottom for p in points) - min(p[6].top for p in points)
-        ratio = min(1.0, area.width / width, area.height / head_height)
-        if ratio >= 1 - 1e-9:
-            break
-        scale *= ratio * 0.999999
+    anchor = (area.top + area.bottom) / 2 - PPI / 8
+    # Each edge is linear in scale: source_coordinate * scale + inch_offset.
+    # Pairwise inequalities produce the exact feasible interval, avoiding a
+    # shrink-only heuristic and preserving the front-row center-line anchor.
+    lower = 0.0
+
+    def limit(upper_edges, lower_edges, available):
+        nonlocal lower
+        bound = float("inf")
+        for upper_coord, upper_move in upper_edges:
+            for lower_coord, lower_move in lower_edges:
+                slope, offset = upper_coord - lower_coord, upper_move - lower_move
+                if slope > 0:
+                    bound = min(bound, (available - offset) / slope)
+                elif slope < 0:
+                    lower = max(lower, (available - offset) / slope)
+                elif offset > available + 1e-7:
+                    raise ValueError("Individual moves exceed the placement box. Choose Reset placement.")
+        return bound
+
+    left_edges = [(x + a.body.left, dx) for a, _, _, x, _, dx, _ in raw]
+    right_edges = [(x + a.body.right, dx) for a, _, _, x, _, dx, _ in raw]
+    top_edges = [(y + a.head.top, dy) for a, _, _, _, y, _, dy in raw]
+    bottom_edges = [(y + a.head.bottom, dy) for a, _, _, _, y, _, dy in raw]
+    front_edges = [(y + a.head.bottom, dy) for a, ri, _, _, y, _, dy in raw if ri == len(rows) - 1]
+    limits = {"front_framing": desired,
+              "width": limit(right_edges, left_edges, area.width),
+              "head_top": limit(front_edges, top_edges, anchor - area.top),
+              "head_envelope": limit(bottom_edges, top_edges, area.height)}
+    scale = min(limits.values())
+    if not isfinite(scale) or scale <= 0 or lower > scale + 1e-7:
+        raise ValueError("Individual moves leave no room for this formation. Choose Reset placement.")
+    scale *= 1 - 1e-12  # Avoid floating-point edge overflow in final coordinates.
     points = placed(scale)
     left, right = min(p[5].left for p in points), max(p[5].right for p in points)
     top, bottom = min(p[6].top for p in points), max(p[6].bottom for p in points)
@@ -61,7 +85,7 @@ def compose_silhouettes(active, rows, counts, settings, corrections, fixed_scale
     ox = area.center_x - (left + right) / 2 + settings.x_offset_in * PPI
     # Match the established design anchor; bodies extend intact behind the FG.
     front_bottom = max(p[6].bottom for p in points if p[1] == len(rows) - 1)
-    oy = (area.top + area.bottom) / 2 - PPI / 8 - front_bottom + settings.y_offset_in * PPI
+    oy = anchor - front_bottom + settings.y_offset_in * PPI
     ox = min(max(ox, area.left - left), area.right - right)
     oy = min(max(oy, area.top - top), area.bottom - bottom)
     points.sort(key=lambda p: (p[1], -abs(p[2] - (counts[p[1]] - 1) / 2), p[0].relative_height, p[0].id))
@@ -71,4 +95,5 @@ def compose_silhouettes(active, rows, counts, settings, corrections, fixed_scale
         placements.append(Placement(a.id, ri, slot, scale, x, y,
                                     transform(a.body, scale, x, y), transform(a.head, scale, x, y),
                                     a.image_size, a.body))
-    return Layout(tuple(placements), counts, scale, (), clip=Rect(0, 0, *ART_SIZE), reference_scale=reference)
+    return Layout(tuple(placements), counts, scale, (), clip=Rect(0, 0, *ART_SIZE),
+                  reference_scale=reference, fit_limits=limits)

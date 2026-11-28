@@ -126,6 +126,7 @@ def merge_inventory(job, folder):
             existing.pop("requested_rows", None)
         existing["manifest"]["athletes"] = fresh_entries
         existing["manifest"]["team_name"] = folder.name
+    existing.pop("preview_only", None)  # Watched sources become real queue entries.
     return existing
 
 
@@ -261,10 +262,10 @@ class ProductionEngine:
             if stable:
                 team = merge_inventory(job, folder)
                 candidates.append((folder, version, team))
-        # The largest initially present team establishes the common job scale.
+        # Larger teams first; fast fitting independently maximizes each team.
         candidates.sort(key=lambda item: (-len(item[2]["manifest"]["athletes"]), item[0].name))
         sources = {folder.resolve() for folder, *_ in candidates}
-        job["teams"] = [team for team in job["teams"] if not any(
+        job["teams"] = [team for team in job["teams"] if team.get("preview_only") or not any(
             source != Path(team["manifest"]["source_folder"]).resolve()
             and source.is_relative_to(Path(team["manifest"]["source_folder"]).resolve())
             for source in sources
@@ -292,7 +293,7 @@ class ProductionEngine:
                     # A lost master must never trigger duplicate printing.
                     if not Path(previous[1]).is_file() or self._source_hash(Path(previous[1])) != receipt["sha256"]:
                         statuses[str(folder.resolve())] = {"state": "Needs attention", "message": "Completed master is missing or changed. Restore it or deliberately rebuild this team."}
-                    if receipt.get("base_scale") and job.get("base_scale") is None:
+                    if receipt.get("base_scale") and job.get("base_scale") is None and not job.get("job_settings", {}).get("transparency_mode"):
                         job["base_scale"] = receipt["base_scale"]
                     if receipt.get("capture_canvas") and not job.get("capture_canvas"):
                         job["capture_canvas"] = receipt["capture_canvas"]
@@ -325,13 +326,7 @@ class ProductionEngine:
                             raise ValueError("; ".join(problems[:4]) or "This team requires attention.")
                         if not job.get("capture_canvas"):
                             job["capture_canvas"] = view.analysis.report.get("capture_canvas")
-                        if job.get("base_scale") is None and job.get("job_settings", {}).get("transparency_mode"):
-                            job["base_scale"] = view.analysis.layout.reference_scale
-                            current["base_scale"] = job["base_scale"]
-                            current["capture_canvas"] = job.get("capture_canvas")
-                            # Reference equals the scale used to compute this layout;
-                            # no second preview/detection pass is necessary.
-                        elif job.get("base_scale") is None and not job.get("job_settings", {}).get("foreground_framing"):
+                        if job.get("base_scale") is None and not job.get("job_settings", {}).get("foreground_framing") and not job.get("job_settings", {}).get("transparency_mode"):
                             factor = current.get("job_settings", {}).get("group_scale", current["teams"][current["selected_team"]]["manifest"].get("settings", {}).get("group_scale", 1.0))
                             job["base_scale"] = view.analysis.layout.global_scale / factor * 0.85
                             job["capture_canvas"] = view.analysis.report.get("capture_canvas")

@@ -4,13 +4,13 @@
 
 Repository: [dennisaduval/Pilot-TeamBuilder](https://github.com/dennisaduval/Pilot-TeamBuilder).
 
-Version **0.7.0.dev0**, milestones TB-001 through TB-004. Includes an initial
+Version **0.8.0.dev0**, milestones TB-001 through TB-004. Includes an initial
 desktop review application, composition engine, manifest preflight and offline
 detection. Hotfolder processing and verified delivery are implemented; production field validation remains outstanding.
 
 ## Automatic production desktop
 
-**Choose hotfolder → Job setup → Start automatic processing.** Team folders are
+**Choose hotfolder → Preview team → Job setup → Start when ready.** Team folders are
 team names; reliable teams render and deliver automatically without per-athlete
 approval. Saved job-wide settings include templates, color variants, the selected
 row CSV, common athlete size (up to 300%), overlap, placement and delivery locations.
@@ -22,8 +22,11 @@ Center heroes paint last; each outward position is lower. Athlete overlap starts
 at 15%, and ordinary offsets are fitted automatically rather than held for review.
 Selected defaults provide an explicit fallback for missing color templates.
 
-**Save & start automatic processing** starts watching immediately after valid job
-setup. A disposable 2-GiB local render cache avoids decoding PNGs twice during
+**Save & preview** keeps production paused. Select a preview-team folder, tune
+job defaults, then explicitly **Start automatic processing** when ready. A preview
+outside Incoming never enters automatic output. Each later team independently
+uses the largest scale allowed by front-row three-quarter framing, width and top
+boundaries; it can grow beyond the previous team's scale. See [fitting rules](docs/FITTING.md). A disposable 2-GiB local render cache avoids decoding PNGs twice during
 automatic processing; original file hashes are verified before using cached pixels.
 Final rendering remains full resolution and proportional. A visible **Reset placement**
 action restores a centered formation. Optional face-based placement remains in

@@ -130,6 +130,7 @@ class Layout:
     schema_version: int = 1
     clip: Rect | None = None
     reference_scale: float | None = None
+    fit_limits: dict[str, float] = field(default_factory=dict)
 
 
 class ReviewRequired(ValueError):

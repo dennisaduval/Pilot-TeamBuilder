@@ -28,6 +28,7 @@ from .review import (
     new_job,
     requested_distribution,
     rows_from_layout,
+    select_preview_folder,
     validate_job,
 )
 
@@ -132,7 +133,7 @@ class TeamBuilderApp:
         self.requested_rows = tk.StringVar(root, "Auto")
         self.distribution = tk.StringVar(root, "—")
         self.center_guides = tk.BooleanVar(root, True)
-        self.setup_summary = tk.StringVar(root, "1  Choose hotfolder   →   2  Job setup   →   3  Start automatic processing")
+        self.setup_summary = tk.StringVar(root, "Choose hotfolder → Preview team → Set job defaults → Start when ready")
         self.monitor_caption = tk.StringVar(root, "Start automatic processing")
         self._theme()
         self._build()
@@ -215,6 +216,8 @@ class TeamBuilderApp:
         self.job_box.bind("<<ComboboxSelected>>", self._open_recent)
         ttk.Button(actions, text="Choose hotfolder…", style="Primary.TButton",
                    command=self._guard(self.choose_team_folder)).pack(side="left", padx=4)
+        self.preview_button = ttk.Button(actions, text="Preview team…", command=self._guard(self.choose_preview_team))
+        self.preview_button.pack(side="left", padx=4)
         ttk.Button(actions, text="Job setup…", command=self._guard(self.job_setup)).pack(side="left", padx=4)
         self.monitor_button = ttk.Button(actions, textvariable=self.monitor_caption,
                                         style="Export.TButton", command=self.toggle_monitor)
@@ -609,7 +612,8 @@ class TeamBuilderApp:
         job = self.session.job
         templates = self.view.template_names if self.view else ""
         rows = Path(job["row_csv"]).name if job.get("row_csv") else "Built-in team row CSV"
-        self.setup_summary.set(f"Incoming: {job['incoming']}  ·  {rows}\nTemplates: {templates or job['templates']}  ·  Settings apply to the whole job")
+        preview = Path(job["preview_team_source"]).name if job.get("preview_team_source") else "Choose a preview team"
+        self.setup_summary.set(f"Incoming: {job['incoming']}  ·  Preview: {preview}  ·  {rows}\nTemplates: {templates or job['templates']}  ·  Settings apply to the whole job")
 
     def _autosave(self):
         if not self.session:
@@ -640,10 +644,11 @@ class TeamBuilderApp:
         dialog.transient(self.root)
         page = ttk.Frame(dialog, padding=20)
         page.pack(fill="both", expand=True)
-        ttk.Label(page, text="Set up once. Process every team automatically.", style="Title.TLabel").grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 14))
+        ttk.Label(page, text="Set up a preview. Start production when ready.", style="Title.TLabel").grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 14))
         variables = {}
         fields = (
             ("incoming", "Incoming hotfolder", False),
+            ("preview_team_source", "Preview team folder", False),
             ("templates", "Templates folder", False),
             ("background", "Default background JPG", True),
             ("foreground", "Default foreground PNG", True),
@@ -679,19 +684,19 @@ class TeamBuilderApp:
                             feedback.set(str(error))
             ttk.Button(page, text="Choose…", command=browse).grid(row=index, column=2)
         feedback = tk.StringVar(dialog)
-        ttk.Label(page, text="Automatic naming: Team Background_default.jpg + Team Foreground_default.png\nColor pairs: Team Background_Orange.jpg + Team Foreground_Orange.png (case-insensitive).\nColor comes from player filenames (_Orange, _Aqua, _Green…), not the team folder.\nSelect default files directly above. Both 24 × 8 artwork and 26 × 8 print templates work.\nThe extra 2-inch identification strip is kept separate from the artwork.", style="Sub.TLabel", wraplength=760).grid(row=9, column=0, columnspan=3, sticky="w", pady=12)
+        ttk.Label(page, text="Defaults: Team Background_default.jpg + Team Foreground_default.png\nColors: _Orange / _Aqua / _Green on player files and matching template pairs.\nTemplates: 24 × 8 or 26 × 8; the app creates the separate 2-inch name strip.", style="Sub.TLabel", wraplength=760).grid(row=10, column=0, columnspan=3, sticky="w", pady=10)
         retained = tk.BooleanVar(dialog, job.get("retained_capture", True))
         marker = tk.BooleanVar(dialog, job.get("require_ready", False))
         relaxed = tk.BooleanVar(dialog, job.get("relaxed_detection", True))
         fast = tk.BooleanVar(dialog, bool(job.get("job_settings", {}).get("transparency_mode", 1)))
         quiet = tk.StringVar(dialog, str(job.get("settle_seconds", 20)))
-        ttk.Checkbutton(page, text="Player PNGs keep their original size (automatic height sorting; not template dimensions)", variable=retained).grid(row=10, column=0, columnspan=3, sticky="w", pady=4)
-        ttk.Checkbutton(page, text="Fast placement from transparency (recommended; skips face detection)", variable=fast).grid(row=11, column=0, columnspan=3, sticky="w", pady=4)
-        ttk.Checkbutton(page, text="Require team.ready file after copying (strongest transfer protection)", variable=marker).grid(row=12, column=0, columnspan=3, sticky="w", pady=4)
-        ttk.Label(page, text="Wait after last folder change (seconds)").grid(row=13, column=0, sticky="w")
-        ttk.Spinbox(page, textvariable=quiet, from_=2, to=3600, increment=1, width=8).grid(row=13, column=1, sticky="w", padx=10)
-        ttk.Label(page, text="Athlete size and overlap spacing are shared across the job. Teams center and fit automatically, with one common scale for every athlete. Start automatic processing to save and route finished panoramas.", style="Sub.TLabel", wraplength=750).grid(row=14, column=0, columnspan=3, sticky="w", pady=8)
-        ttk.Label(page, textvariable=feedback, foreground="#92400E", wraplength=750).grid(row=15, column=0, columnspan=3, sticky="w")
+        ttk.Checkbutton(page, text="Player PNGs keep their original size (automatic height sorting; not template dimensions)", variable=retained).grid(row=11, column=0, columnspan=3, sticky="w", pady=4)
+        ttk.Checkbutton(page, text="Fast placement from transparency (recommended; skips face detection)", variable=fast).grid(row=12, column=0, columnspan=3, sticky="w", pady=4)
+        ttk.Checkbutton(page, text="Require team.ready file after copying (strongest transfer protection)", variable=marker).grid(row=13, column=0, columnspan=3, sticky="w", pady=4)
+        ttk.Label(page, text="Wait after last folder change (seconds)").grid(row=14, column=0, sticky="w")
+        ttk.Spinbox(page, textvariable=quiet, from_=2, to=3600, increment=1, width=8).grid(row=14, column=1, sticky="w", padx=10)
+        ttk.Label(page, text="Tune the preview on the main screen. Defaults apply to all teams; each is fitted independently. Start automatic processing when ready.", style="Sub.TLabel", wraplength=750).grid(row=15, column=0, columnspan=3, sticky="w", pady=8)
+        ttk.Label(page, textvariable=feedback, foreground="#92400E", wraplength=750).grid(row=16, column=0, columnspan=3, sticky="w")
         def save_setup():
             try:
                 candidate = deepcopy(job)
@@ -725,20 +730,19 @@ class TeamBuilderApp:
                         raise ValueError("No complete template pairs found. Select the default files above or use the naming examples.")
                 for team in candidate["teams"]:
                     team["templates"] = ""
+                if variables["preview_team_source"].get().strip():
+                    candidate = select_preview_folder(candidate, Path(variables["preview_team_source"].get().strip()))
                 validate_job(candidate, Path.cwd())
-                self.session.job = candidate
-                self.session.touch()
-                self._autosave()
-                self._update_setup_summary()
                 dialog.destroy()
-                self.request_view()
-                self.toggle_monitor()
+                self.set_job(candidate)
+                self._autosave()
+                self.status.set("Preview setup saved. Adjust the job defaults, then start automatic processing when ready.")
             except (ValueError, OSError) as error:
                 feedback.set(str(error))
         buttons = ttk.Frame(page)
-        buttons.grid(row=16, column=0, columnspan=3, sticky="e", pady=(12, 0))
+        buttons.grid(row=17, column=0, columnspan=3, sticky="e", pady=(12, 0))
         ttk.Button(buttons, text="Cancel", command=dialog.destroy).pack(side="left", padx=8)
-        ttk.Button(buttons, text="Save & start automatic processing", style="Primary.TButton", command=save_setup).pack(side="left")
+        ttk.Button(buttons, text="Save & preview", style="Primary.TButton", command=save_setup).pack(side="left")
         page.columnconfigure(1, weight=1)
         dialog.grab_set()
 
@@ -818,7 +822,7 @@ class TeamBuilderApp:
                             source = team["manifest"]["source_folder"]
                             if source == selected_source:
                                 updated["selected_team"] = i
-                            team["production"] = result["statuses"].get(str(Path(source).resolve()), {})
+                            team["production"] = result["statuses"].get(str(Path(source).resolve()), {"state": "Preview only"} if team.get("preview_only") else {})
                             state = team["production"].get("state", "Queued")
                             values = (len(team["manifest"]["athletes"]), state)
                             if self.teams.exists(str(i)):
@@ -831,7 +835,8 @@ class TeamBuilderApp:
                         self._update_setup_summary()
                         done = sum(t.get("production", {}).get("state") == "Completed" for t in updated["teams"])
                         held = sum(t.get("production", {}).get("state") in {"Needs attention", "Retry needed", "Retry pending"} for t in updated["teams"])
-                        self.summary.set(f"{len(updated['teams'])} teams · {done} complete · {held} need attention")
+                        queued = sum(not t.get("preview_only") for t in updated["teams"])
+                        self.summary.set(f"{queued} teams · {done} complete · {held} need attention")
                         if updated["teams"]:
                             self.teams.selection_set(str(updated["selected_team"]))
                             selection = (self.session.manifest, updated.get("base_scale"), updated.get("capture_canvas"))
@@ -931,7 +936,7 @@ class TeamBuilderApp:
             folders = team_folders(selected)
             for folder in folders:
                 merge_inventory(self.session.job, folder)
-            self.session.job["teams"] = [team for team in self.session.job["teams"] if not any(
+            self.session.job["teams"] = [team for team in self.session.job["teams"] if team.get("preview_only") or not any(
                 folder != Path(team["manifest"]["source_folder"]).resolve()
                 and folder.is_relative_to(Path(team["manifest"]["source_folder"]).resolve())
                 for folder in folders
@@ -952,6 +957,21 @@ class TeamBuilderApp:
         self.set_job(job)
         self.session.dirty = True
         self._autosave()
+
+    def choose_preview_team(self):
+        if not self.session:
+            self.choose_team_folder()
+        if not self.session:
+            return
+        self.stop_monitor()
+        self._flush_live()
+        folder = filedialog.askdirectory(parent=self.root, title="Choose one preview team folder (athlete PNGs)")
+        if not folder:
+            return
+        candidate = select_preview_folder(self.session.job, Path(folder))
+        self.set_job(candidate)
+        self._autosave()
+        self.status.set("Preview only. Adjust the job defaults; automatic processing stays paused until you start it.")
 
     def new(self):
         if not self._discard():
@@ -1036,7 +1056,7 @@ class TeamBuilderApp:
                 text=m["team_name"],
                 values=(
                     len(m["athletes"]),
-                    "Exported" if team["exports"] else "Not checked",
+                    "Preview only" if team.get("preview_only") else ("Exported" if team["exports"] else "Not checked"),
                 ),
             )
         self._update_setup_summary()
@@ -1374,15 +1394,14 @@ class TeamBuilderApp:
             str(self.session.job["selected_team"]),
             values=(
                 active,
-                self.session.team.get("production", {}).get("state") or (
+                "Preview only" if self.session.team.get("preview_only") else self.session.team.get("production", {}).get("state") or (
                     "Needs attention" if report["issues"] or (self.view and not self.view.templates_ready)
                     else ("Exported" if self.session.team["exports"] else "Ready")),
             ),
         )
         exported = sum(bool(t["exports"]) or t.get("production", {}).get("state") == "Completed" for t in self.session.job["teams"])
-        self.summary.set(
-            f"{len(self.session.job['teams'])} teams · {exported} complete"
-        )
+        previews = sum(bool(t.get("preview_only")) for t in self.session.job["teams"])
+        self.summary.set(f"{len(self.session.job['teams']) - previews} teams · {exported} complete" + (f" · {previews} preview" if previews else ""))
         layout = self.view.analysis.layout if self.view else None
         if layout:
             self.row_counts.set(", ".join(map(str, layout.row_counts)))
@@ -1422,6 +1441,12 @@ class TeamBuilderApp:
                 else ""
             )
         )
+        if not problems and layout and layout.fit_limits:
+            limiting = min(layout.fit_limits, key=layout.fit_limits.get)
+            reason = {"front_framing": "front-row three-quarter framing", "width": "available width",
+                      "head_top": "top of the placement box", "head_envelope": "vertical space"}[limiting]
+            self.details.set("Automatic fit: athlete size is limited by " + reason + ".")
+        self.issue_label.configure(foreground="#92400E" if problems else ROYAL)
         self._sync_rows(layout.row_counts if layout else None)
         record = self._record()
         anchors = self.session.team["anchors"].get(self.selected_id, {})

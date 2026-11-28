@@ -62,7 +62,7 @@ class ProductionTests(unittest.TestCase):
         with Image.open(status["output"]) as image:
             self.assertEqual(image.size, (7800, 2400))
             self.assertEqual(image.info["dpi"], (300, 300))
-        self.assertIsNotNone(result["job"]["base_scale"])
+        self.assertIsNone(result["job"]["base_scale"])
         self.assertEqual(result["job"]["job_settings"]["foreground_framing"], 1)
         self.assertEqual(result["job"]["capture_canvas"], (400, 1000))
         self.assertEqual(before, {p.name: file_hash(p) for p in self.folder.glob("*.png")})

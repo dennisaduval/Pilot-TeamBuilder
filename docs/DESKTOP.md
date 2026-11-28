@@ -1,4 +1,4 @@
-# TeamBuilder 0.7.0 — automatic team production
+# TeamBuilder 0.8.0 — automatic team production
 
 Pilot TeamBuilder is an offline hotfolder application. Set up a job once, start
 monitoring, and drop team folders into the incoming folder. Valid teams render
@@ -12,19 +12,22 @@ never changed, moved or deleted. This is a developer preview, not an event relea
    into one team. Common image wrappers such as Edited PNG/Images keep their
    parent team's name. A folder containing PNGs directly is also supported.
    Folder names are used verbatim as the printed team names, including prefixes.
-2. **Job setup…** selects the template folder, optional explicit default background
-   and foreground, row CSV, completed-output location, and optional upload/sample
-   delivery folders. The bundled row CSV is the initial selection; another CSV can
-   be selected for this job. Settings and queue state save automatically.
-3. Enable **Player PNGs keep their original size** only for
-   the matching capture workflow. Dennis confirmed this for the supplied sample
-   batch. This describes player photographs, not template dimensions, and can be
-   disabled for resized/cropped source workflows.
-4. **Save & start automatic processing** in Job setup starts watching immediately.
-   The main **Start automatic processing** button also starts or resumes watching.
-   The watcher waits for stable folders, analyzes all included
-   sources, validates templates and exports valid teams automatically.
+2. **Preview team…** selects one team's PNG folder, independently of Incoming.
+   It may be outside the hotfolder; external sources are marked **Preview only**
+   and never exported automatically. Existing corrections are retained on re-selection.
+3. **Job setup…** selects templates, row CSV, output and optional upload/printing
+   destinations. Its preview-team field can also select the setup example. Choose
+   **Save & preview** to return to the preview with production still paused.
+4. Tune job-wide vertical spacing, athlete overlap, hero step, group size and
+   position against the preview. Keep **Player PNGs keep their original size**
+   enabled for the confirmed original-canvas capture workflow.
+5. Explicitly press **Start automatic processing** when satisfied. The watcher
+   waits for stable folders, places/renders each team, and routes its verified JPEG.
    **Pause** prevents new work; a team already publishing/delivering finishes safely.
+
+Opening jobs, choosing folders and saving setup never start watching automatically.
+A preview inside Incoming becomes a normal team when you explicitly start; a
+preview outside Incoming is excluded from all automatic output/routing.
 
 The header displays the actual application package version. **Job ▾** holds saved
 jobs, Save a copy, Demo and deliberate Rebuild. There is no manifest-import action
@@ -98,17 +101,18 @@ no athlete is individually enlarged, shrunk or stretched. Under the confirmed
 fixed-capture workflow, the silhouette's top coordinate supplies the height rank.
 
 One standard pitch is based on typical silhouette width and the job's **Athlete
-overlap** percentage (15% initially). The first/largest processed team establishes
-the job's size reference. Multi-row teams start 10% smaller; the whole group may
-shrink to fit. All athletes in each team always share exactly the same scale.
-Groups center horizontally, with front-row top bands near the center guide as in
-the samples. Small teams remain centered instead of being stretched to full width.
-Full lower bodies extend behind the foreground. Normal offsets and size changes
-are automatically fitted; they no longer produce the misleading “after manual
-correction” hold. Huge conflicting individual moves have a specific **Reset
-placement** remedy. Reset clears the selected team's individual offsets and the
-job's horizontal/vertical offsets; other corrections and completed receipts remain.
-**Reset automatic fit** restores 100% size and recalibrates on the largest team.
+overlap** percentage (15% initially). Each team independently chooses its largest
+allowed scale. Its front row's tallest silhouette supplies a three-quarter-height
+size reference; multi-row framing starts 10% smaller. Width and the top boundary
+can reduce that reference, preserving the front-row anchor 1/8 inch above the center
+guide. A previous team's size does not restrict later teams. The UI names the
+limiting boundary when athletes cannot grow further. See [fitting rules](FITTING.md).
+
+Every athlete in a team always shares one identical scale. Small teams stay centered
+rather than spreading unnaturally. Normal moves are fitted automatically. Full lower
+bodies extend behind the foreground. **Reset placement** clears selected-team offsets
+and job X/Y offsets, preserving other edits and completed receipts. **Reset automatic
+fit** restores 100% group size; it does not calibrate later teams from the first one.
 
 Existing jobs migrate once to fast transparency placement and a visible hero step,
 preserving corrections and delivery history. Placement is based on alpha geometry,

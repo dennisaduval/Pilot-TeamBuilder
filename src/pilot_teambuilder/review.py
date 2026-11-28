@@ -37,7 +37,7 @@ def new_job(incoming: Path, name: str | None = None, *, allow_empty=False) -> di
     return {
         "schema_version": 1,
         "hotfolder_mode": True,
-        "framing_version": 3,
+        "framing_version": 4,
         "name": name or incoming.name,
         "incoming": str(incoming),
         "templates": str(incoming.parent / "Templates/Team"),
@@ -54,6 +54,7 @@ def new_job(incoming: Path, name: str | None = None, *, allow_empty=False) -> di
         "routes": [],
         "teams": teams,
         "selected_team": 0,
+        "preview_team_source": "",
     }
 
 
@@ -104,6 +105,19 @@ def add_image_folder(job: dict | None, folder: Path) -> dict:
     return result
 
 
+def select_preview_folder(job: dict, folder: Path) -> dict:
+    """Select one real team for setup without changing the watched hotfolder."""
+    folders = team_folders(folder.resolve(strict=True))
+    if len(folders) != 1:
+        raise ValueError("Choose one team folder containing athlete PNGs, rather than a parent with several teams.")
+    result = add_image_folder(job, folders[0])
+    source = folders[0].resolve()
+    team = result["teams"][result["selected_team"]]
+    team["preview_only"] = not source.is_relative_to(Path(result["incoming"]).resolve())
+    result["preview_team_source"] = str(source)
+    return result
+
+
 def requested_distribution(count: int, requested: int | None, automatic: tuple[int, ...]) -> tuple[int, ...]:
     if requested is None:
         validate_rows(automatic, count)
@@ -131,6 +145,8 @@ def validate_job(job: dict, base_dir: Path):
     for key in ("name", "incoming", "templates", "output", "row_csv"):
         if not isinstance(job.get(key), str):
             raise ValueError(f"Invalid job {key}.")
+    if not isinstance(job.get("preview_team_source", ""), str):
+        raise ValueError("Invalid preview team folder.")
     if not isinstance(job.get("template_presets"), dict):
         raise ValueError("Invalid template settings in saved job.")
     if Path(job["output"]).resolve().is_relative_to(Path(job["incoming"]).resolve()):
@@ -138,6 +154,8 @@ def validate_job(job: dict, base_dir: Path):
     for team in job["teams"]:
         if not isinstance(team, dict) or not isinstance(team.get("manifest"), dict):
             raise ValueError("Invalid team in saved job.")
+        if type(team.get("preview_only", False)) is not bool:
+            raise ValueError("Invalid preview-only team flag.")
         manifest = manifest_from_data(team["manifest"], base_dir)
         if team.get("requested_rows") is not None:
             requested_distribution(sum(not e.excluded for e in manifest.entries), team["requested_rows"], ())
@@ -238,7 +256,10 @@ def upgrade_job(job):
         settings["v_max_drop_in"] = max(settings.get("v_max_drop_in", 0.25), 0.5)
         result["base_scale"] = None
     settings.setdefault("transparency_mode", 1.0)
-    result["framing_version"] = 3
+    if result.get("framing_version", 0) < 4 and settings.get("transparency_mode"):
+        result["base_scale"] = None
+    result["framing_version"] = 4
+    result.setdefault("preview_team_source", "")
     result.setdefault("relaxed_detection", True)
     return result
 

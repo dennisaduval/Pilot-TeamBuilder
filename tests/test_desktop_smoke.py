@@ -101,22 +101,50 @@ class DesktopSmokeTests(unittest.TestCase):
                     "pilot_teambuilder.app.DesktopEngine",
                     side_effect=lambda state: DesktopEngine(state, NoDetector()),
                 ):
+                    preview_folder = folder / "Preview/Setup Team"
+                    write_sources(preview_folder, athletes(5))
+                    with patch("pilot_teambuilder.app.filedialog.askdirectory", return_value=str(preview_folder)):
+                        app.choose_preview_team()
+                    wait_for(lambda: app.view is not None and app.view.analysis.layout is not None)
+                    self.assertEqual(app.session.job["incoming"], str(incoming))
+                    self.assertTrue(app.session.team["preview_only"])
+                    self.assertFalse(app.monitoring)
+                    self.assertFalse(Path(app.session.job["output"]).exists())
+                    for key, value, step in (("overlap_fraction", "20", 1), ("row_separation_heads", "1.75", 0.125), ("v_step_in", "0.15", 0.025)):
+                        before = app.view
+                        app._live_change(key, value, step)
+                        wait_for(lambda: app.view is not before)
+                    sources = write_sources(incoming / "Event/Division/Automatic Team", athletes(9))
+                    for source in sources.values():
+                        source.rename(source.with_stem(source.stem + "_Aqua"))
                     app.job_setup()
                     def descendants(widget):
                         for child in widget.winfo_children():
                             yield child
                             yield from descendants(child)
-                    start = next(w for w in descendants(root)
-                                 if w.winfo_class() == "TButton" and w.cget("text") == "Save & start automatic processing")
-                    start.invoke()
+                    save_preview = next(w for w in descendants(root)
+                                        if w.winfo_class() == "TButton" and w.cget("text") == "Save & preview")
+                    save_preview.invoke()
+                    self.assertFalse(app.monitoring, app.status.get())
+                    # Existing hotfolder teams must remain untouched during setup.
+                    until = time.monotonic() + 1.2
+                    while time.monotonic() < until:
+                        root.update()
+                        time.sleep(0.01)
+                    self.assertIsNone(app.production_worker)
+                    self.assertFalse(list(Path(app.session.job["output"]).rglob("*.jpg")))
+                    app.toggle_monitor()  # The only explicit Start action.
                     self.assertTrue(app.monitoring, app.status.get())
-                    sources = write_sources(incoming / "Event/Division/Automatic Team", athletes(9))
-                    for source in sources.values():
-                        source.rename(source.with_stem(source.stem + "_Aqua"))
-                    wait_for(lambda: app.session.job["teams"] and app.session.team.get("production", {}).get("state") == "Completed")
+                    wait_for(lambda: any(t.get("production", {}).get("state") == "Completed" for t in app.session.job["teams"]))
                     app.stop_monitor()
                     wait_for(lambda: not app.production_busy)
-                    wait_for(lambda: app.view is not None and app.view.analysis.layout is not None)
+                    actual_index = next(i for i, t in enumerate(app.session.job["teams"]) if t["manifest"]["team_name"] == "Automatic Team")
+                    app.teams.selection_set(str(actual_index))
+                    app.select_team()
+                    wait_for(lambda: app.view is not None and app.view.analysis.report["team_name"] == "Automatic Team")
+                    self.assertEqual(app.view.analysis.report["settings"]["overlap_fraction"], 0.2)
+                    self.assertEqual(app.view.analysis.report["settings"]["row_separation_heads"], 1.75)
+                    self.assertAlmostEqual(app.view.analysis.report["settings"]["v_step_in"], 0.15)
                 self.assertEqual(app.recent.get(), app.session.job["name"])
                 self.assertEqual(len(app.canvas.find_withtag("center-guide")), 2)
                 self.assertIn("selected default", app.view.template_names.casefold())

@@ -639,3 +639,41 @@ were also running, so that comparison is illustrative, not a controlled speed ra
 The synthetic regression/CI results and packaged build are linked in PR #4. Customer
 photographs, private renders, source paths and contact sheets are not committed.
 Further native Mac/event throughput and template-specific visibility need validation.
+
+
+## 2026-11-27 — 0.8.0.dev0 preview-first setup and maximal per-team fit
+
+Operator correction: setup must remain paused while a representative team is
+previewed and job-wide spacing/overlap/hero settings are tuned. Added Preview team
+picker plus an independent setup field. External preview folders preserve Incoming,
+settings and destinations; they are marked preview_only and excluded from processing
+candidates. Preview re-selection preserves corrections. Save & preview never starts
+the worker; only explicit Start does. The GUI regression includes existing incoming
+PNGs during setup and asserts no production worker/output before explicit Start.
+
+Reviewed sizing: a job scale frozen from the first/largest team could under-size
+later teams, and fitting only the total head envelope could shift front heads down
+when back rows reached the top. Fast mode now derives framing from the tallest
+front-row silhouette (75% height reference; 90% multi-row cap). Exact pairwise linear
+constraints choose the maximum feasible common scale from framing, full group width,
+the front-anchor-to-highest-top distance, and all top-band bounds. Front head-band
+bottoms stay 1/8 inch above the guide while back tops stay within the box. Defaults
+remain shared; each subsequent team can grow or shrink independently. Individual
+moves stay inch-valued; job X/Y offsets translate within bounds without resizing.
+Reports retain limiting scales; the UI shows which boundary caps size.
+
+Version-4 framing migration clears the stale fast-mode base_scale once and preserves
+settings/corrections/receipts. Old fast receipts cannot reintroduce that cap. Legacy
+face/full-body modes retain their existing scale contract. No automatic reprints or
+source changes occur. Raw render cache, content verification, duplicate prevention
+and copy-settle behavior from 0.7 remain in place. See docs/FITTING.md for formulas
+and limits, including the approximate rather than anatomical three-quarter reference.
+
+Added regression cases for external/internal preview selection, save/reload, no setup
+exports, defaults inherited by actual incoming teams, preserved corrections, and
+migration. Mathematical checks cover every CSV size 1–45 plus 64/100, centered/common
+scale, fixed front anchor and saturation of a real width/top/framing constraint;
+also later-team enlargement, front-row sizing, increased row spacing and the 10%
+multi-row cap. Local suite: 160 tests, expected native/display skips. CI and packaged
+preview evidence are maintained in PR #4. Native appearance still needs operator
+validation with real event templates; fast top bands do not certify anatomical heads.
